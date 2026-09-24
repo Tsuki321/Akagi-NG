@@ -1,7 +1,7 @@
 /// Used for making const tile IDs in u8.
 ///
 /// ```
-/// use riichi::tu8;
+/// use riichi3p::tu8;
 ///
 /// assert_eq!(tu8!(E), 27u8);
 /// ```
@@ -173,7 +173,7 @@ macro_rules! matches_tu8 {
 /// Panics if the input is not a valid tile.
 ///
 /// ```rust,should_panic
-/// use riichi::{must_tile, tu8};
+/// use riichi3p::{must_tile, tu8};
 ///
 /// let t = must_tile!(tu8!(?) + 1);
 /// ```
@@ -189,7 +189,7 @@ macro_rules! must_tile {
 
 #[cfg(doctest)]
 /// ```rust,compile_fail
-/// use riichi::tu8;
+/// use riichi3p::tu8;
 ///
 /// let t = tu8!(0m);
 /// ```

@@ -12,6 +12,7 @@ import hashlib
 import json
 import re
 import shutil
+import subprocess
 from pathlib import Path
 
 REVISION = "e11e17452cc49f2a3cd8e26286130bb4448d3285"
@@ -91,6 +92,9 @@ def main() -> None:
         "upstream": "https://github.com/Equim-chan/Mortal",
         "sha256_before_mobile_changes": provenance,
     }, indent=2) + "\n", encoding="utf-8")
+    if args.sanma:
+        # Only exact, committed source edits are applied; this never builds code.
+        subprocess.run(["git", "apply", str(ROOT / "scripts/mobile/sanma_legacy.patch")], cwd=ROOT, check=True)
     print(f"Vendored {len(provenance)} files into {destination}")
 
 

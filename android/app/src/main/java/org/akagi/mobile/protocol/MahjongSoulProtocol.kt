@@ -56,6 +56,11 @@ class MahjongSoulProtocol(schemaJson: String) {
         status = "Waiting for Mahjong Soul"
     }
 
+    /** Preserve the connection/identity so a complete new round can recover. */
+    fun invalidateEngine(reason: String) {
+        invalidate(reason)
+    }
+
     fun accept(rawCaptureJson: String): ProtocolUpdate {
         resetThisUpdate = false
         clearThisUpdate = false

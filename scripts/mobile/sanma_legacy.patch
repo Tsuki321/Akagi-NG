@@ -1,0 +1,235 @@
+--- a/native/vendor/mortal3p/src/state/obs_repr.rs
++++ b/native/vendor/mortal3p/src/state/obs_repr.rs
+@@ -155,7 +155,8 @@
+         self.idx += 3;
+ 
+         for &score in &state.scores {
+-            let v = score.clamp(0, 100_000) as f32 / 100_000.;
++            let score_cap = if self.version == 4 { 105_000 } else { 100_000 };
++            let v = score.clamp(0, score_cap) as f32 / score_cap as f32;
+             self.arr.fill(self.idx, v);
+             self.idx += 1;
+ 
+@@ -164,7 +165,8 @@
+                     .rbf_intervals(10)
+                     .encode(&mut self),
+                 4 | 5 => {
+-                    let v = score.clamp(0, 30_000) as f32 / 30_000.;
++                    let score_cap = if self.version == 4 { 40_000 } else { 30_000 };
++                    let v = score.clamp(0, score_cap) as f32 / score_cap as f32;
+                     self.arr.fill(self.idx, v);
+                     self.idx += 1;
+                 }
+@@ -174,7 +176,7 @@
+ 
+         let n = state.rank as usize;
+         self.arr.fill(self.idx + n, 1.);
+-        self.idx += 4;
++        self.idx += if self.version == 4 { 3 } else { 4 };
+ 
+         let n = state.kyoku as usize;
+         match self.version {
+@@ -183,7 +185,7 @@
+             2 | 3 | 4 | 5 => self.arr.fill(self.idx + n, 1.),
+             _ => unreachable!(),
+         }
+-        self.idx += 4;
++        self.idx += if self.version == 4 { 3 } else { 4 };
+ 
+         let cap = match self.version {
+             1 | 4 | 5 => 10,
+@@ -289,11 +291,15 @@
+ 
+         // Normalized by the max drawable tiles minus one: 69 in yonma
+         // (70-1), 54 in sanma (55-1).
+-        let v = state.tiles_left as f32 / f32::from(INITIAL_TILES_LEFT - 1);
++        // The deployed v4 model retains the yonma denominator, as measured
++        // against the shipped libriichi3p binary. Do not renormalize it.
++        let denominator = if self.version == 4 { 69 } else { INITIAL_TILES_LEFT - 1 };
++        let v = state.tiles_left as f32 / f32::from(denominator);
+         self.arr.fill(self.idx, v);
+         self.idx += 1;
+ 
+-        for count in state.doras_owned {
++        // v4 retains the fourth (zero) dora-owned channel in its frozen ABI.
++        for &count in state.doras_owned.iter().take(if self.version == 4 { 4 } else { 3 }) {
+             IntegerEncoder::new(count as usize, 12)
+                 .rescale(true)
+                 .rbf_intervals(3)
+@@ -381,13 +387,13 @@
+             .enumerate()
+             .filter(|&(_, &b)| b)
+             .for_each(|(i, _)| self.arr.fill(self.idx + i, 1.));
+-        self.idx += 3;
++        self.idx += if self.version == 4 { 2 } else { 3 };
+         state.riichi_accepted[1..]
+             .iter()
+             .enumerate()
+             .filter(|&(_, &b)| b)
+             .for_each(|(i, _)| self.arr.fill(self.idx + i, 1.));
+-        self.idx += 3;
++        self.idx += if self.version == 4 { 2 } else { 3 };
+ 
+         state
+             .waits
+@@ -517,14 +523,16 @@
+         // Sanma has no chi. The feature rows remain in the native v5 layout,
+         // while action slots follow the historical libriichi3p deployment ABI.
+         #[cfg(feature = "sanma")]
+-        if cans.can_nukidora {
++        if self.version != 4 && cans.can_nukidora {
+             self.arr.fill(self.idx, 1.);
+             if !self.at_kan_select {
+                 self.mask[ACTION_NUKIDORA] = true;
+             }
+         }
+         // (chi_mid and chi_high slots are always 0 in sanma)
+-        self.idx += 3;
++        if self.version != 4 {
++            self.idx += 3;
++        }
+ 
+         if cans.can_pon {
+             self.arr.fill(self.idx, 1.);
+@@ -541,6 +549,17 @@
+             }
+         }
+         self.idx += 1;
++
++        // Frozen v4 puts kita after pon and daiminkan, before ankan.
++        if self.version == 4 {
++            if cans.can_nukidora {
++                self.arr.fill(self.idx, 1.);
++                if !self.at_kan_select {
++                    self.mask[ACTION_NUKIDORA] = true;
++                }
++            }
++            self.idx += 1;
++        }
+ 
+         if cans.can_ankan {
+             for tile in state.ankan_candidates {
+@@ -653,9 +672,11 @@
+     }
+ 
+     fn encode_ev(&mut self, value: f32) {
+-        let v = value.clamp(0., 100_000.) / 100_000.;
++        let cap = if self.version == 4 { 105_000. } else { 100_000. };
++        let v = value.clamp(0., cap) / cap;
+         self.arr.fill(self.idx, v);
+-        let v = value.clamp(0., 30_000.) / 30_000.;
++        let cap = if self.version == 4 { 40_000. } else { 30_000. };
++        let v = value.clamp(0., cap) / cap;
+         self.arr.fill(self.idx + 1, v);
+         self.idx += 2;
+     }
+--- a/native/vendor/mortal3p/src/state/player_state.rs
++++ b/native/vendor/mortal3p/src/state/player_state.rs
+@@ -126,7 +126,8 @@
+ 
+     /// Including aka, originally for agari calc usage but also encoded as a
+     /// feature to the obs.
+-    pub(super) doras_owned: [u8; NUM_PLAYERS],
++    // The deployed sanma v4 observation retains a fourth zero channel.
++    pub(super) doras_owned: [u8; 4],
+     pub(super) doras_seen: u8,
+ 
+     pub(super) akas_in_hand: [bool; 3],
+--- a/native/vendor/mortal3p/src/state/update.rs
++++ b/native/vendor/mortal3p/src/state/update.rs
+@@ -151,7 +151,11 @@
+         self.waits.fill(false);
+         self.dora_factor.fill(0);
+         self.tiles_seen.fill(0);
++        // 2m..8m do not exist in sanma. The historical encoder includes these
++        // exhausted counts in tiles_seen and the single-player calculation.
++        self.tiles_seen[1..8].fill(4);
+         self.akas_seen.fill(false);
++        self.akas_seen[0] = true;
+         self.keep_shanten_discards.fill(false);
+         self.next_shanten_discards.fill(false);
+         self.forbidden_tiles.fill(false);
+@@ -1014,7 +1018,8 @@
+             self.move_tile(pai, MoveType::FuuroConsume)?;
+             self.at_rinshan = true;
+             // nukidora counts as a bonus dora for the player
+-            self.doras_owned[0] += 1;
++            // Keep the deployed v4 dora-owned observation: extraction does not
++            // add a synthetic dora count to this field.
+             // Tehai changed (3n+2 → 3n+1); refresh shanten and waits so the
+             // upcoming rinshan tsumo evaluates can_tsumo_agari against the
+             // post-nuki hand. Without this, the at_rinshan branch in `tsumo`
+--- a/native/vendor/mortal3p/src/state/mod.rs
++++ b/native/vendor/mortal3p/src/state/mod.rs
+@@ -7,11 +7,12 @@
+ mod sp_tables;
+ mod update;
+ 
+-#[cfg(test)]
++// The upstream state fixtures include unavailable 2m..8m and assert v5 rules.
++// Deployment v4 is verified against the real legacy library in CI instead.
++#[cfg(all(test, not(feature = "sanma")))]
+ mod test;
+ 
+ pub use action::ActionCandidate;
+ pub use player_state::PlayerState;
+ pub use sp_tables::SinglePlayerTables;
+ 
+-
+--- a/native/vendor/mortal3p/src/tile.rs
++++ b/native/vendor/mortal3p/src/tile.rs
+@@ -119,6 +119,8 @@
+             return self;
+         }
+         let tile = self.deaka();
++        if tile.0 == tu8!(1m) { return t!(9m); }
++        if tile.0 == tu8!(9m) { return t!(1m); }
+         let kind = tile.0 / 9;
+         let num = tile.0 % 9;
+ 
+@@ -138,6 +140,8 @@
+             return self;
+         }
+         let tile = self.deaka();
++        if tile.0 == tu8!(1m) { return t!(9m); }
++        if tile.0 == tu8!(9m) { return t!(1m); }
+         let kind = tile.0 / 9;
+         let num = tile.0 % 9;
+         if kind < 3 {
+@@ -294,6 +298,7 @@
+     fn next_prev() {
+         MJAI_PAI_STRINGS.iter().take(37).for_each(|&s| {
+             let tile: Tile = s.parse().unwrap();
++            if (1..=7).contains(&tile.deaka().as_u8()) { return; }
+             assert_eq!(tile.prev().next(), tile.deaka());
+             assert_eq!(tile.next().prev(), tile.deaka());
+         });
+--- a/native/vendor/mortal3p/src/macros.rs
++++ b/native/vendor/mortal3p/src/macros.rs
+@@ -1,7 +1,7 @@
+ /// Used for making const tile IDs in u8.
+ ///
+ /// ```
+-/// use riichi::tu8;
++/// use riichi3p::tu8;
+ ///
+ /// assert_eq!(tu8!(E), 27u8);
+ /// ```
+@@ -173,7 +173,7 @@
+ /// Panics if the input is not a valid tile.
+ ///
+ /// ```rust,should_panic
+-/// use riichi::{must_tile, tu8};
++/// use riichi3p::{must_tile, tu8};
+ ///
+ /// let t = must_tile!(tu8!(?) + 1);
+ /// ```
+@@ -189,7 +189,7 @@
+ 
+ #[cfg(doctest)]
+ /// ```rust,compile_fail
+-/// use riichi::tu8;
++/// use riichi3p::tu8;
+ ///
+ /// let t = tu8!(0m);
+ /// ```

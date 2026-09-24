@@ -47,7 +47,9 @@ class AnalysisViewModel(application: Application) : AndroidViewModel(application
             try {
                 val update = protocol.accept(payload)
                 if (update.sessionReset) mortal.reset()
-                if (update.clearAdvice || update.sessionReset) mutable.update { it.copy(advice = null) }
+                if (update.clearAdvice || update.sessionReset) mutable.update {
+                    if (capturedEpoch != epoch.get()) it else it.copy(advice = null)
+                }
                 var newest: EngineAdvice? = null
                 for (event in update.events) {
                     if (capturedEpoch != epoch.get()) return@submit
@@ -76,6 +78,7 @@ class AnalysisViewModel(application: Application) : AndroidViewModel(application
                 }
             } catch (failure: Throwable) {
                 mortal.reset()
+                protocol.invalidateEngine("Advice paused; waiting for a complete new hand or game reload")
                 if (capturedEpoch == epoch.get()) {
                     mutable.update { if (capturedEpoch != epoch.get()) it else it.copy(advice = null, status = UiStatus(
                         label = "Advice paused",
