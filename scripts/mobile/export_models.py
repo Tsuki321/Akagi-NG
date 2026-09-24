@@ -24,6 +24,7 @@ import torch
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE_REVISION = "e11e17452cc49f2a3cd8e26286130bb4448d3285"
+SANMA_SOURCE_REVISION = "8d149e3bbbc380b5b5f1c1d60f51f2d029812414"
 CHECKPOINTS = {
     4: ("mortal.pth", 1012, 46, "e94dc90bc3aaf412b0270d670660d7fe55c9d33b14419f97caf42fe77c01456f"),
     3: ("mortal3p.pth", 775, 44, "7b77cab4cd9782f48b0a8538b264840e5f5d20f9a8469914cdb52b7d0912f384"),
@@ -82,10 +83,37 @@ def discard(tile: str, actor: int = 0, tsumogiri: bool = True) -> dict[str, Any]
 def fixture_traces(players: int) -> dict[str, list[dict[str, Any]]]:
     if players == 3:
         hand = "1m 9m 1p 2p 4p 5pr 7p 9p 1s 3s 5sr 7s N".split()
-        return {
-            "sanma_kita": starting_events(hand, players=3) + [draw("8s")],
+        traces = {
+            "sanma_kita": starting_events(hand, players=3) + [draw("8s"), {"type": "nukidora", "actor": 0, "pai": "N"}, draw("6s")],
             "sanma_ankan": starting_events("5pr 5p 5p 1p 2p 3p 2s 3s 4s 7s 8s 9s E".split(), players=3) + [draw("5p")],
+            "sanma_two_ankan": starting_events("5pr 5p 5p 5p 5sr 5s 5s 1s 2s 3s E E F".split(), players=3) + [draw("5s")],
+            "sanma_reach": starting_events("1p 2p 3p 4p 5p 6p 2s 3s 4s 6s 7s 8s E".split(), players=3)
+                + [draw("9p"), {"type": "reach", "actor": 0}],
+            "sanma_pon_red": starting_events("5pr 5p 1m 9m 1p 2p 3p 2s 3s 4s E F F".split(), players=3, dealer=1)
+                + [draw("?", 1), discard("5p", 1)],
+            "sanma_daiminkan": starting_events("5pr 5p 5p 1m 9m 1p 2p 2s 3s 4s E F F".split(), players=3, dealer=1)
+                + [draw("?", 1), discard("5p", 1)],
+            "sanma_ron": starting_events("E E E 1p 2p 3p 4p 5p 6p 7s 8s 9s C".split(), players=3, dealer=1)
+                + [draw("?", 1), discard("C", 1)],
+            "sanma_tsumo": starting_events("E E E 1p 2p 3p 4p 5p 6p 7s 8s 9s C".split(), players=3) + [draw("C")],
+            "sanma_abort": starting_events("1m 9m 1p 9p 1s 9s E S W N P F C".split(), players=3) + [draw("5p")],
         }
+        traces["sanma_kakan"] = starting_events("5pr 5p 1p 2p 3p 2s 3s 4s 7s 8s 9s F E".split(), players=3, dealer=2) + [
+            draw("?", 2), discard("5p", 2),
+            {"type": "pon", "actor": 0, "target": 2, "pai": "5p", "consumed": ["5pr", "5p"]},
+            discard("E", tsumogiri=False), draw("?", 1), discard("C", 1),
+            draw("?", 2), discard("W", 2), draw("5p"),
+        ]
+        traces["sanma_nuki_riichi"] = starting_events("1m 1m 1m 1p 2p 3p 4p 5p 6p 7s 8s 9s C".split(), players=3) + [
+            draw("F"), {"type": "reach", "actor": 0}, discard("F"), {"type": "reach_accepted", "actor": 0},
+            draw("?", 1), discard("E", 1), draw("?", 2), discard("P", 2), draw("N"),
+        ]
+        traces["sanma_other_nuki"] = starting_events(hand, players=3) + [draw("8s"), discard("8s"),
+            draw("?", 1), {"type": "nukidora", "actor": 1, "pai": "N"}, draw("?", 1), discard("C", 1),
+            draw("?", 2), discard("F", 2), draw("6s")]
+        traces["sanma_dora_1m"] = starting_events(hand, players=3) + [draw("8s")]
+        traces["sanma_dora_1m"][1]["dora_marker"] = "1m"
+        return traces
     traces = {
         "discard_red": [json.loads(line) for line in (ROOT / "native/fixtures/smoke_4p.jsonl").read_text().splitlines() if line],
         "reach_lookahead": starting_events("1m 2m 3m 4m 5m 6m 2p 3p 4p 6s 7s 8s E".split())
@@ -156,8 +184,14 @@ def canonical_event(event: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in event.items() if k not in {"meta", "can_act"} and v is not None}
 
 
-def validate_native(cli: Path, trace_path: Path, events: list[dict[str, Any]], desktop: list[dict[str, Any]], library: Any) -> dict[str, Any]:
-    process = subprocess.run([str(cli), str(trace_path), "0"], check=True, text=True, capture_output=True)
+def validate_native(cli: Path, trace_path: Path, events: list[dict[str, Any]], desktop: list[dict[str, Any]], library: Any, players: int) -> dict[str, Any]:
+    process = subprocess.run([str(cli), str(trace_path), "0", str(players)], check=False, text=True, capture_output=True)
+    trace_path.with_suffix(".native.jsonl").write_text(process.stdout, encoding="utf-8")
+    trace_path.with_suffix(".native.stderr.txt").write_text(process.stderr, encoding="utf-8")
+    np.savez_compressed(trace_path.with_suffix(".desktop.npz"), **{
+        f"{i}_{kind}": case[kind] for i, case in enumerate(desktop) for kind in ("obs", "mask", "kan_obs", "kan_mask") if case[kind] is not None
+    })
+    process.check_returncode()
     native = [json.loads(line) for line in process.stdout.splitlines() if line]
     assert len(native) == len(desktop), f"Native/desktop decision count differs for {trace_path.name}"
     max_error = 0.0
@@ -174,6 +208,13 @@ def validate_native(cli: Path, trace_path: Path, events: list[dict[str, Any]], d
             np.testing.assert_array_equal(actual["kan"]["mask"], reference["kan_mask"])
             np.testing.assert_allclose(np.asarray(actual["kan"]["obs"], dtype=np.float32).reshape(reference["kan_obs"].shape),
                                        reference["kan_obs"], atol=1e-6, rtol=1e-6)
+        if actual.get("reach") is not None:
+            replay = events[: reference["line"] + 1] + [{"type": "reach", "actor": 0}]
+            reach_reference = capture(library, replay)[-1]
+            np.testing.assert_array_equal(actual["reach"]["mask"], reach_reference["mask"])
+            np.testing.assert_allclose(np.asarray(actual["reach"]["obs"], dtype=np.float32).reshape(reach_reference["obs"].shape),
+                                       reach_reference["obs"], atol=1e-6, rtol=1e-6,
+                                       err_msg=f"Cloned riichi state differs from desktop replay: {trace_path.name}")
         for action in actual["actions"]:
             forced_decisions = capture(library, events[: reference["line"] + 1], forced=action["index"])
             expected = canonical_event(forced_decisions[-1]["reaction"])
@@ -193,7 +234,7 @@ class MortalGraph(torch.nn.Module):
         return self.dqn(self.brain(obs), mask)
 
 
-def export_model(network: Any, players: int, output: Path, fixtures: Path, native_cli: Path | None, report: dict[str, Any]) -> list[dict[str, Any]]:
+def export_model(network: Any, players: int, output: Path, fixtures: Path, native_cli: Path | None, report: dict[str, Any], validate_sanma: bool = False) -> list[dict[str, Any]]:
     filename, channels, actions, expected_sha = CHECKPOINTS[players]
     checkpoint = ROOT / "models" / filename
     assert sha256(checkpoint) == expected_sha, f"Unexpected checkpoint: {checkpoint}"
@@ -217,8 +258,8 @@ def export_model(network: Any, players: int, output: Path, fixtures: Path, nativ
         path.write_text("".join(json.dumps(event, separators=(",", ":")) + "\n" for event in events), encoding="utf-8")
         captured = capture(library, events)
         assert captured, f"No real desktop decisions for {name}"
-        if players == 4 and native_cli:
-            native_results.append(validate_native(native_cli, path, events, captured, library))
+        if native_cli and (players == 4 or validate_sanma):
+            native_results.append(validate_native(native_cli, path, events, captured, library, players))
         for i, decision in enumerate(captured):
             cases.append((f"{players}p_{name}_{i}", decision))
             if decision["kan_obs"] is not None:
@@ -262,8 +303,8 @@ def export_model(network: Any, players: int, output: Path, fixtures: Path, nativ
         "checkpoint_sha256": expected_sha, "version": 4, "players": players,
         "observation_shape": [1, channels, 34], "mask_shape": [1, actions],
         "score_semantics": "legal_masked_dueling_q", "inference": "deterministic_fp32_cpu",
-        "native_compatible": players == 4 and native_cli is not None,
-        "native_source": SOURCE_REVISION if players == 4 else None,
+        "native_compatible": native_cli is not None and (players == 4 or validate_sanma),
+        "native_source": SOURCE_REVISION if players == 4 else SANMA_SOURCE_REVISION,
         "license": "models/LICENSE",
     }
     (output / f"mortal{players}p.json").write_text(json.dumps(description, indent=2) + "\n", encoding="utf-8")
@@ -278,6 +319,7 @@ def main() -> None:
     parser.add_argument("--output", type=Path, default=ROOT / "android/app/src/main/assets/models")
     parser.add_argument("--fixtures", type=Path, default=ROOT / "native/fixtures/generated")
     parser.add_argument("--native-cli", type=Path, help="Built mortal-fixtures binary; required to approve 4p compatibility")
+    parser.add_argument("--validate-sanma", action="store_true", help="Also require native sanma compatibility before approving it")
     parser.add_argument("--report", type=Path, default=ROOT / "artifacts/mobile-model-parity.json")
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
@@ -293,9 +335,10 @@ def main() -> None:
         cases = []
         for players in (4, 3):
             cases.extend(export_model(network, players, args.output, args.fixtures,
-                                      args.native_cli.resolve() if args.native_cli else None, report))
+                                      args.native_cli.resolve() if args.native_cli else None, report, args.validate_sanma))
         (args.output / "reference.json").write_text(json.dumps({"cases": cases}, indent=2) + "\n", encoding="utf-8")
         shutil.copyfile(ROOT / "native/fixtures/smoke_4p.jsonl", args.output / "smoke_4p.jsonl")
+        shutil.copyfile(ROOT / "native/fixtures/smoke_3p.jsonl", args.output / "smoke_3p.jsonl")
         shutil.copyfile(ROOT / "models/LICENSE", args.output / "LICENSE")
         report["passed"] = True
     except BaseException as error:

@@ -1,0 +1,4 @@
+-keep class org.akagi.mobile.engine.** { native <methods>; }
+-keep class org.akagi.mobile.nativecore.** { *; }
+-keep class ai.onnxruntime.** { *; }
+-keep class com.google.protobuf.** { *; }

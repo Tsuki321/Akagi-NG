@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+  <title>Akagi local table fixture</title>
+  <style>
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html,body { width:100%; height:100%; margin:0; overflow:hidden; color:#dbe9d5; font-family:system-ui,sans-serif; }
+    body { background:radial-gradient(ellipse at 50% 42%,#23584e 0,#123b37 58%,#092825 100%); user-select:none; }
+    .felt { position:absolute; inset:3%; border:1px solid #92b89926; border-radius:35%; box-shadow:inset 0 0 80px #0003; }
+    .fixture { position:absolute; top:9px; left:50%; transform:translateX(-50%); font-size:9px; letter-spacing:2.5px; color:#d0ded488; white-space:nowrap; }
+    .north { position:absolute; top:32px; left:50%; display:flex; gap:2px; transform:translateX(-50%); }
+    .back { width:17px; height:25px; border-radius:3px; background:linear-gradient(#527e68,#315949); border:1px solid #a0bca166; box-shadow:0 3px #173a30; }
+    .west,.east { position:absolute; top:28%; display:flex; flex-direction:column; gap:2px; }
+    .west { left:30px; } .east { right:30px; } .west .back,.east .back { width:25px; height:13px; }
+    .round { position:absolute; top:41%; left:50%; width:106px; height:70px; transform:translate(-50%,-50%); border:1px solid #a9c4a755; border-radius:12px; text-align:center; background:#082a28bb; padding-top:10px; }
+    .round b { font-size:19px; font-weight:500; letter-spacing:3px; } .round small { display:block; font-size:10px; color:#aec9bd; margin-top:3px; }
+    .discards { position:absolute; top:58%; left:50%; transform:translateX(-50%); display:flex; gap:3px; }
+    .tile { display:inline-flex; flex-direction:column; justify-content:center; align-items:center; width:32px; height:45px; padding:0; border:0; border-radius:4px; background:#efeee0; box-shadow:0 3px #9fab98,0 4px 5px #0004; color:#253d48; font:700 20px/1 system-ui; transition:transform .12s; }
+    .tile span { font-size:12px; margin-top:2px; }.tile.red { color:#a34336; }.tile.green { color:#286348; }
+    .discards .tile { width:24px; height:33px; font-size:15px; }.discards .tile span { font-size:9px; }
+    .hand { position:absolute; bottom:17px; left:50%; transform:translateX(-50%); display:flex; gap:3px; white-space:nowrap; }
+    .hand .tile.selected { transform:translateY(-10px); outline:2px solid #d7c384; }
+    .score { position:absolute; bottom:82px; left:50%; transform:translateX(-50%); font-size:10px; letter-spacing:2px; color:#c9d5b8aa; }
+    .action { position:absolute; right:14px; bottom:78px; height:37px; min-width:60px; border:1px solid #b9c48e77; border-radius:18px; color:#ebe9c8; background:#263e32; font-size:11px; letter-spacing:1px; }
+    .avatar { position:absolute; top:38%; color:#d9d3a5; font-size:12px; }.avatar.left { left:68px; }.avatar.right { right:68px; }
+    @media (orientation:portrait) { .hand { gap:2px; bottom:27px; }.hand .tile { width:24px; height:39px; font-size:17px; }.hand .tile span {font-size:10px;} .west {left:12px}.east {right:12px}.avatar.left {left:45px}.avatar.right {right:45px}.action {bottom:95px}.score {bottom:83px} }
+  </style>
+</head>
+<body>
+  <div class="felt"></div><div class="fixture">LOCAL TABLE · UI FIXTURE</div>
+  <div class="north" id="north"></div><div class="west" id="west"></div><div class="east" id="east"></div>
+  <div class="avatar left">25,000</div><div class="avatar right">25,000</div>
+  <div class="round"><b>東 1</b><small>70 tiles remaining</small></div>
+  <div class="discards"><div class="tile">9<span>萬</span></div><div class="tile green">2<span>竹</span></div><div class="tile">北<span>N</span></div><div class="tile red">中<span>R</span></div></div>
+  <div class="score">SOUTH · 25,000</div><div class="hand" id="hand"></div>
+  <button class="action" id="fixture_action">PASS</button>
+  <script>
+    window.fixtureDocumentToken = `${Date.now()}-${Math.random()}`;
+    window.fixtureSession = localStorage.akagiFixtureSession || (localStorage.akagiFixtureSession = crypto.randomUUID());
+    window.fixtureClicks = 0;
+    ['north','west','east'].forEach(id => document.getElementById(id).innerHTML = '<div class="back"></div>'.repeat(13));
+    const tiles = [['1','萬'],['2','萬'],['3','萬'],['4','●'],['5','●','red'],['6','●'],['2','竹','green'],['3','竹','green'],['4','竹','green'],['6','竹','green'],['7','竹','green'],['8','竹','green'],['東','E']];
+    document.getElementById('hand').innerHTML = tiles.map((t,i) => `<button class="tile ${t[2]||''}" id="tile_${i}" aria-label="Tile ${i+1}">${t[0]}<span>${t[1]}</span></button>`).join('');
+    document.querySelectorAll('.hand .tile').forEach(tile => tile.addEventListener('click', () => { tile.classList.toggle('selected'); window.fixtureClicks++; }));
+    document.getElementById('fixture_action').addEventListener('click', () => { window.fixtureClicks++; document.getElementById('fixture_action').textContent='PASSED'; });
+    window.fixtureReady = true;
+  </script>
+</body>
+</html>
