@@ -179,6 +179,7 @@ impl PlayerState {
 
         self.dora_indicators.clear();
         self.doras_owned.fill(0);
+        self.nukidora_count.fill(0);
         self.doras_seen = 0;
         self.akas_in_hand.fill(false);
 
@@ -1014,6 +1015,8 @@ impl PlayerState {
     #[cfg(feature = "sanma")]
     fn nukidora(&mut self, actor: u8, pai: Tile) -> Result<()> {
         let actor_rel = self.rel(actor);
+        ensure!(pai == must_tile!(tu8!(N)), "nukidora must extract North");
+        self.nukidora_count[actor_rel] += 1;
         if actor_rel == 0 {
             self.move_tile(pai, MoveType::FuuroConsume)?;
             self.at_rinshan = true;

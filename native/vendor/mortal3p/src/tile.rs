@@ -140,8 +140,6 @@ impl Tile {
             return self;
         }
         let tile = self.deaka();
-        if tile.0 == tu8!(1m) { return t!(9m); }
-        if tile.0 == tu8!(9m) { return t!(1m); }
         let kind = tile.0 / 9;
         let num = tile.0 % 9;
         if kind < 3 {
@@ -298,9 +296,14 @@ mod test {
     fn next_prev() {
         MJAI_PAI_STRINGS.iter().take(37).for_each(|&s| {
             let tile: Tile = s.parse().unwrap();
-            if (1..=7).contains(&tile.deaka().as_u8()) { return; }
+            // The deployed sanma model retains ordinary predecessors for its
+            // ura calculation even though forward dora cycling is 1m <-> 9m.
+            if tile.deaka().as_u8() <= 8 { return; }
             assert_eq!(tile.prev().next(), tile.deaka());
             assert_eq!(tile.next().prev(), tile.deaka());
         });
+        assert_eq!(t!(1m).next(), t!(9m));
+        assert_eq!(t!(9m).next(), t!(1m));
+        assert_eq!(t!(9m).prev(), t!(8m));
     }
 }

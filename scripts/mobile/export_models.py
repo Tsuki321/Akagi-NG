@@ -113,6 +113,10 @@ def fixture_traces(players: int) -> dict[str, list[dict[str, Any]]]:
             draw("?", 2), discard("F", 2), draw("6s")]
         traces["sanma_dora_1m"] = starting_events(hand, players=3) + [draw("8s")]
         traces["sanma_dora_1m"][1]["dora_marker"] = "1m"
+        traces["sanma_multiple_kita_win"] = starting_events("1p 2p 3p 4p 5p 6p 2s 3s 4s 6s 7s 8s C".split(), players=3) + [
+            draw("N"), {"type": "nukidora", "actor": 0, "pai": "N"},
+            draw("N"), {"type": "nukidora", "actor": 0, "pai": "N"}, draw("C"),
+        ]
         return traces
     traces = {
         "discard_red": [json.loads(line) for line in (ROOT / "native/fixtures/smoke_4p.jsonl").read_text().splitlines() if line],
@@ -253,13 +257,22 @@ def export_model(network: Any, players: int, output: Path, fixtures: Path, nativ
 
     cases: list[tuple[str, dict[str, Any]]] = []
     native_results = []
+    native_errors = []
     for name, events in fixture_traces(players).items():
         path = fixtures / f"{players}p_{name}.jsonl"
         path.write_text("".join(json.dumps(event, separators=(",", ":")) + "\n" for event in events), encoding="utf-8")
         captured = capture(library, events)
         assert captured, f"No real desktop decisions for {name}"
         if native_cli and (players == 4 or validate_sanma):
-            native_results.append(validate_native(native_cli, path, events, captured, library, players))
+            try:
+                native_results.append(validate_native(native_cli, path, events, captured, library, players))
+            except Exception as error:
+                if players == 4:
+                    raise
+                # Preserve every native/reference pair for diagnosis in one CI
+                # run. This still fails the job and never approves compatibility.
+                native_errors.append({"trace": path.name, "error": str(error)})
+                print(f"Native parity failed for {path.name}: {error}", flush=True)
         for i, decision in enumerate(captured):
             cases.append((f"{players}p_{name}_{i}", decision))
             if decision["kan_obs"] is not None:
@@ -303,12 +316,15 @@ def export_model(network: Any, players: int, output: Path, fixtures: Path, nativ
         "checkpoint_sha256": expected_sha, "version": 4, "players": players,
         "observation_shape": [1, channels, 34], "mask_shape": [1, actions],
         "score_semantics": "legal_masked_dueling_q", "inference": "deterministic_fp32_cpu",
-        "native_compatible": native_cli is not None and (players == 4 or validate_sanma),
+        "native_compatible": native_cli is not None and (players == 4 or validate_sanma) and not native_errors,
         "native_source": SOURCE_REVISION if players == 4 else SANMA_SOURCE_REVISION,
         "license": "models/LICENSE",
     }
     (output / f"mortal{players}p.json").write_text(json.dumps(description, indent=2) + "\n", encoding="utf-8")
-    report[f"{players}p"] = {"model": description, "numerical_parity": numerical, "native_parity": native_results}
+    report[f"{players}p"] = {"model": description, "numerical_parity": numerical,
+                             "native_parity": native_results, "native_errors": native_errors}
+    if native_errors:
+        raise RuntimeError(f"{len(native_errors)} sanma traces failed native compatibility; see preserved diagnostics")
     return reference_assets
 
 

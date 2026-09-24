@@ -1,3 +1,68 @@
+--- a/native/vendor/mortal3p/src/macros.rs
++++ b/native/vendor/mortal3p/src/macros.rs
+@@ -1,7 +1,7 @@
+ /// Used for making const tile IDs in u8.
+ ///
+ /// ```
+-/// use riichi::tu8;
++/// use riichi3p::tu8;
+ ///
+ /// assert_eq!(tu8!(E), 27u8);
+ /// ```
+@@ -173,7 +173,7 @@
+ /// Panics if the input is not a valid tile.
+ ///
+ /// ```rust,should_panic
+-/// use riichi::{must_tile, tu8};
++/// use riichi3p::{must_tile, tu8};
+ ///
+ /// let t = must_tile!(tu8!(?) + 1);
+ /// ```
+@@ -189,7 +189,7 @@
+ 
+ #[cfg(doctest)]
+ /// ```rust,compile_fail
+-/// use riichi::tu8;
++/// use riichi3p::tu8;
+ ///
+ /// let t = tu8!(0m);
+ /// ```
+--- a/native/vendor/mortal3p/src/state/agent_helper.rs
++++ b/native/vendor/mortal3p/src/state/agent_helper.rs
+@@ -424,7 +424,7 @@
+         };
+ 
+         let mut tehai = self.tehai;
+-        let mut final_doras_owned = self.doras_owned[0];
++        let mut final_doras_owned = self.doras_owned[0] + self.nukidora_count[0];
+         if is_ron {
+             let tid = winning_tile.deaka().as_usize();
+             tehai[tid] += 1;
+@@ -542,6 +542,7 @@
+             let num_akas = self.akas_in_hand.iter().filter(|&&b| b).count() as u8;
+             self.doras_owned[0] - num_doras_in_tehai - num_akas
+         };
++        let num_doras_in_fuuro = num_doras_in_fuuro + self.nukidora_count[0];
+         let prefer_riichi = self.scores[0] >= 1000;
+         let calc_double_riichi = can_discard && self.can_w_riichi;
+ 
+--- a/native/vendor/mortal3p/src/state/mod.rs
++++ b/native/vendor/mortal3p/src/state/mod.rs
+@@ -7,11 +7,12 @@
+ mod sp_tables;
+ mod update;
+ 
+-#[cfg(test)]
++// The upstream state fixtures include unavailable 2m..8m and assert v5 rules.
++// Deployment v4 is verified against the real legacy library in CI instead.
++#[cfg(all(test, not(feature = "sanma")))]
+ mod test;
+ 
+ pub use action::ActionCandidate;
+ pub use player_state::PlayerState;
+ pub use sp_tables::SinglePlayerTables;
+ 
+-
 --- a/native/vendor/mortal3p/src/state/obs_repr.rs
 +++ b/native/vendor/mortal3p/src/state/obs_repr.rs
 @@ -155,7 +155,8 @@
@@ -125,13 +190,15 @@
      }
 --- a/native/vendor/mortal3p/src/state/player_state.rs
 +++ b/native/vendor/mortal3p/src/state/player_state.rs
-@@ -126,7 +126,8 @@
+@@ -126,7 +126,10 @@
  
      /// Including aka, originally for agari calc usage but also encoded as a
      /// feature to the obs.
 -    pub(super) doras_owned: [u8; NUM_PLAYERS],
 +    // The deployed sanma v4 observation retains a fourth zero channel.
 +    pub(super) doras_owned: [u8; 4],
++    // Kita bonuses affect hand value, but have no dedicated legacy obs rows.
++    pub(super) nukidora_count: [u8; NUM_PLAYERS],
      pub(super) doras_seen: u8,
  
      pub(super) akas_in_hand: [bool; 3],
@@ -149,7 +216,21 @@
          self.keep_shanten_discards.fill(false);
          self.next_shanten_discards.fill(false);
          self.forbidden_tiles.fill(false);
-@@ -1014,7 +1018,8 @@
+@@ -175,6 +179,7 @@
+ 
+         self.dora_indicators.clear();
+         self.doras_owned.fill(0);
++        self.nukidora_count.fill(0);
+         self.doras_seen = 0;
+         self.akas_in_hand.fill(false);
+ 
+@@ -1010,11 +1015,14 @@
+     #[cfg(feature = "sanma")]
+     fn nukidora(&mut self, actor: u8, pai: Tile) -> Result<()> {
+         let actor_rel = self.rel(actor);
++        ensure!(pai == must_tile!(tu8!(N)), "nukidora must extract North");
++        self.nukidora_count[actor_rel] += 1;
+         if actor_rel == 0 {
              self.move_tile(pai, MoveType::FuuroConsume)?;
              self.at_rinshan = true;
              // nukidora counts as a bonus dora for the player
@@ -159,23 +240,6 @@
              // Tehai changed (3n+2 → 3n+1); refresh shanten and waits so the
              // upcoming rinshan tsumo evaluates can_tsumo_agari against the
              // post-nuki hand. Without this, the at_rinshan branch in `tsumo`
---- a/native/vendor/mortal3p/src/state/mod.rs
-+++ b/native/vendor/mortal3p/src/state/mod.rs
-@@ -7,11 +7,12 @@
- mod sp_tables;
- mod update;
- 
--#[cfg(test)]
-+// The upstream state fixtures include unavailable 2m..8m and assert v5 rules.
-+// Deployment v4 is verified against the real legacy library in CI instead.
-+#[cfg(all(test, not(feature = "sanma")))]
- mod test;
- 
- pub use action::ActionCandidate;
- pub use player_state::PlayerState;
- pub use sp_tables::SinglePlayerTables;
- 
--
 --- a/native/vendor/mortal3p/src/tile.rs
 +++ b/native/vendor/mortal3p/src/tile.rs
 @@ -119,6 +119,8 @@
@@ -204,32 +268,3 @@
              assert_eq!(tile.prev().next(), tile.deaka());
              assert_eq!(tile.next().prev(), tile.deaka());
          });
---- a/native/vendor/mortal3p/src/macros.rs
-+++ b/native/vendor/mortal3p/src/macros.rs
-@@ -1,7 +1,7 @@
- /// Used for making const tile IDs in u8.
- ///
- /// ```
--/// use riichi::tu8;
-+/// use riichi3p::tu8;
- ///
- /// assert_eq!(tu8!(E), 27u8);
- /// ```
-@@ -173,7 +173,7 @@
- /// Panics if the input is not a valid tile.
- ///
- /// ```rust,should_panic
--/// use riichi::{must_tile, tu8};
-+/// use riichi3p::{must_tile, tu8};
- ///
- /// let t = must_tile!(tu8!(?) + 1);
- /// ```
-@@ -189,7 +189,7 @@
- 
- #[cfg(doctest)]
- /// ```rust,compile_fail
--/// use riichi::tu8;
-+/// use riichi3p::tu8;
- ///
- /// let t = tu8!(0m);
- /// ```

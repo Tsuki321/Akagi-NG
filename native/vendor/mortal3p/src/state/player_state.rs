@@ -128,6 +128,8 @@ pub struct PlayerState {
     /// feature to the obs.
     // The deployed sanma v4 observation retains a fourth zero channel.
     pub(super) doras_owned: [u8; 4],
+    // Kita bonuses affect hand value, but have no dedicated legacy obs rows.
+    pub(super) nukidora_count: [u8; NUM_PLAYERS],
     pub(super) doras_seen: u8,
 
     pub(super) akas_in_hand: [bool; 3],

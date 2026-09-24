@@ -424,7 +424,7 @@ impl PlayerState {
         };
 
         let mut tehai = self.tehai;
-        let mut final_doras_owned = self.doras_owned[0];
+        let mut final_doras_owned = self.doras_owned[0] + self.nukidora_count[0];
         if is_ron {
             let tid = winning_tile.deaka().as_usize();
             tehai[tid] += 1;
