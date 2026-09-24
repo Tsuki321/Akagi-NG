@@ -1,0 +1,70 @@
+name: Android
+
+on:
+  push:
+    branches: ['android/**']
+    paths: ['android/**', 'native/**', 'scripts/mobile/**', '.github/workflows/android.yml', 'models/**', 'assets/liqi.json']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  engine:
+    name: Native engine and real model parity
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,x86_64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+      - name: Native unit and rules tests
+        working-directory: native
+        run: cargo test --workspace
+      - name: Build reference observation executable
+        working-directory: native
+        run: cargo build --release -p akagi-mobile-core --bin mortal-fixtures
+      - name: Install model conversion dependencies
+        run: |
+          python -m pip install --disable-pip-version-check torch==2.11.0 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install --disable-pip-version-check numpy==2.4.4 onnx==1.20.1 onnxruntime==1.24.3
+      - name: Export and verify actual bundled models
+        run: python scripts/mobile/export_models.py --native-cli native/target/release/mortal-fixtures
+      - name: Install Android native toolchain
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'ndk;28.2.13676358'
+          cargo install cargo-ndk --version 4.1.2 --locked
+      - name: Build ARM64 and emulator libraries
+        working-directory: native
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
+          RUSTFLAGS: '-C link-arg=-Wl,-z,max-page-size=16384'
+        run: |
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
+          cargo ndk -t arm64-v8a -t x86_64 -o ../android/app/src/main/jniLibs build --release -p akagi-mobile-core --lib
+      - name: Upload native libraries and model assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-engine
+          path: |
+            android/app/src/main/assets/models/
+            android/app/src/main/jniLibs/
+          retention-days: 14
+      - name: Upload model parity evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-parity
+          path: artifacts/mobile-model-parity.json
+          if-no-files-found: ignore

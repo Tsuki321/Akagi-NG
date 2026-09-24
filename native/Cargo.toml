@@ -1,0 +1,11 @@
+[workspace]
+resolver = "3"
+members = ["mobile-core", "vendor/mortal"]
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"
+# Unwind is intentional: malformed captured events must not abort the app at JNI.
+panic = "unwind"
+

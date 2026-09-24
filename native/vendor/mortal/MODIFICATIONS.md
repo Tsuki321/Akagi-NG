@@ -1,0 +1,5 @@
+This is a source subset of [shinkuan/Mortal_v4](https://github.com/shinkuan/Mortal_v4/tree/e11e17452cc49f2a3cd8e26286130bb4448d3285), itself derived from Equim-chan/Mortal. The original license is included as LICENSE. SOURCE.json records every imported file's digest before modification.
+
+The mobile port removes PyO3 attributes, imports, NumPy conversion methods, and Python module registration. Training, arena, Python bot, and dataset modules are excluded. It retains the original rules, v4 observation encoding, lookup tables, state tests, and score algorithms. `mobile_action.rs` extracts the action match from `agent/mortal.rs`, passes the selected kan explicitly, bounds-checks the action index, and validates the resulting event. It does not change tile ordering or consumed red-five behavior.
+
+Reproduce the subset with `python scripts/mobile/vendor_mortal.py PATH_TO_PINNED_CHECKOUT`. Native JNI ownership, lifecycle validation, and model execution are outside this directory. Compile and validate through the Android GitHub Actions workflow.

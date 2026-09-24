@@ -31,3 +31,15 @@ htmlcov/
 .hypothesis/
 .pytest_cache/
 .ruff_cache/
+
+# Android/native build outputs and local emulator evidence
+android/.gradle/
+android/local.properties
+android/app/src/main/jniLibs/
+android/app/src/main/assets/models/
+android/app/src/main/assets/protocol/
+native/target/
+native/fixtures/generated/
+artifacts/
+*.keystore
+*.jks
