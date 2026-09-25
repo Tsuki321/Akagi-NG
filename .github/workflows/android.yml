@@ -69,6 +69,7 @@ jobs:
           path: |
             artifacts/mobile-model-parity.json
             native/fixtures/generated/
+            native/Cargo.lock
           if-no-files-found: ignore
 
   assemble:
@@ -102,6 +103,7 @@ jobs:
           cp models/LICENSE android/app/src/main/assets/notices/MODELS_LICENSE.txt
           cp lib/LICENSE android/app/src/main/assets/notices/LIBRARIES_LICENSE.txt
           cp native/vendor/mortal/LICENSE android/app/src/main/assets/notices/MORTAL_LICENSE.txt
+          cp native/vendor/mortal3p/LICENSE android/app/src/main/assets/notices/MORTAL3P_LICENSE.txt
           python scripts/android_protocol_fixtures.py
       - name: Build app and instrumentation APKs; run protocol tests and lint
         working-directory: android

@@ -14,7 +14,6 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
-import androidx.test.espresso.Espresso.pressBack
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.UiDevice
@@ -24,17 +23,31 @@ import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import org.junit.FixMethodOrder
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.junit.rules.TestName
+import org.junit.runners.MethodSorters
 
 @RunWith(AndroidJUnit4::class)
+@FixMethodOrder(MethodSorters.NAME_ASCENDING)
 class GameShellTest {
     @get:Rule val compose = createAndroidComposeRule<BrowserFixtureActivity>()
+    @get:Rule val testName = TestName()
 
     @Before fun waitForGame() {
         compose.waitUntil(15_000) { compose.activity.captures.any { JSONObject(it).optString("type") == "capture_ready" } }
         awaitBrowser(compose.activity, "window.fixtureReady")
+        if (testName.methodName != "a00_firstLaunchEducationDismissesAndReturnsInputToTheGame") dismissFullscreenEducation(compose.activity)
+        awaitBrowser(compose.activity, "innerHeight > 200 && document.body.getBoundingClientRect().height > 200")
+    }
+
+    @Test fun a00_firstLaunchEducationDismissesAndReturnsInputToTheGame() {
+        assertTrue(dismissFullscreenEducation(compose.activity, requirePrompt = true))
+        tapBrowserElement(compose.activity, "fixture_action")
+        awaitBrowser(compose.activity, "window.fixtureClicks === 1")
+        captureScreenshot(compose.activity, "00_fixture_after_system_education")
     }
 
     @Test fun compactControlsLeaveTheGameFullscreenAndTouchable() {
@@ -49,11 +62,10 @@ class GameShellTest {
         compose.onNodeWithTag("settings_sheet").assertDoesNotExist()
         compose.onNodeWithTag("advice_strip").assertDoesNotExist()
         captureScreenshot(compose.activity, "01_fixture_compact_landscape")
-        val action = evaluate(compose.activity, "JSON.stringify((() => { const r=document.getElementById('fixture_action').getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})())") as String
-        val center = JSONObject(action)
-        val density = compose.activity.resources.displayMetrics.density
-        UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).click((center.getDouble("x") * density).toInt(), (center.getDouble("y") * density).toInt())
+        tapBrowserElement(compose.activity, "fixture_action")
         awaitBrowser(compose.activity, "window.fixtureClicks === 1")
+        tapBrowserElement(compose.activity, "tile_0")
+        awaitBrowser(compose.activity, "window.fixtureClicks === 2")
     }
 
     @Test fun expandSettingsDismissAndBackReturnToCompactGame() {
@@ -65,13 +77,15 @@ class GameShellTest {
         compose.onNodeWithTag("close_settings").assertHeightIsAtLeast(48.dp).performClick()
         compose.onNodeWithTag("settings_sheet").assertDoesNotExist()
         compose.onNodeWithTag("advice_strip").assertIsDisplayed()
-        pressBack()
+        awaitWindowFocus(compose.activity)
+        UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).pressBack()
         compose.onNodeWithTag("advice_chip").assertIsDisplayed()
         compose.onNodeWithTag("advice_strip").assertDoesNotExist()
         compose.onNodeWithTag("advice_chip").performClick()
         compose.onNodeWithTag("open_settings").performClick()
-        pressBack()
+        UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).pressBack()
         compose.onNodeWithTag("settings_sheet").assertDoesNotExist()
+        awaitWindowFocus(compose.activity)
         compose.onNodeWithTag("collapse_advice").performClick()
         compose.onNodeWithTag("advice_chip").assertIsDisplayed()
     }

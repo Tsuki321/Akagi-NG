@@ -1,8 +1,10 @@
 package org.akagi.mobile.ui
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Color
 
 internal val Mint = Color(0xFFA7DFC4)
@@ -19,6 +21,8 @@ fun AkagiTheme(content: @Composable () -> Unit) {
             primaryContainer = Color(0xFF244D3E),
             onPrimaryContainer = Color(0xFFD0F6E1),
             secondary = Gold,
+            secondaryContainer = Color(0xFF29483F),
+            onSecondaryContainer = Color(0xFFD0F0DE),
             background = Color(0xFF091316),
             surface = Ink,
             onSurface = Color(0xFFEDF4EE),
@@ -27,6 +31,8 @@ fun AkagiTheme(content: @Composable () -> Unit) {
             outline = Color(0xFF415752),
             error = Color(0xFFFFB4AA),
         ),
-        content = content,
-    )
+    ) {
+        // MaterialTheme does not set the default text color outside a Surface.
+        CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface, content = content)
+    }
 }

@@ -156,4 +156,28 @@ mod tests {
         assert_eq!(encoding.obs[608 * 34 + 1], 1.0); // Exhausted 2m.
         assert_eq!(encoding.obs[647 * 34], 1.0); // Kita feature after daiminkan.
     }
+
+    #[test]
+    fn riichi_fork_does_not_advance_live_state_and_suppressed_replay_can_resume() {
+        let mut events: Vec<serde_json::Value> = TRACE.lines().map(|line| serde_json::from_str(line).unwrap()).collect();
+        events[1]["tehais"][0] = serde_json::json!(["1m", "2m", "3m", "4m", "5m", "6m", "2p", "3p", "4p", "6s", "7s", "8s", "E"]);
+        events[2]["pai"] = serde_json::json!("9p");
+        let mut live = Session::new(0, 4).unwrap();
+        let mut replay = Session::new(0, 4).unwrap();
+        for (index, event) in events.iter().enumerate() {
+            live.accept(&event.to_string()).unwrap();
+            let mut replay_event = event.clone();
+            replay_event["can_act"] = serde_json::json!(index == events.len() - 1);
+            replay.accept(&replay_event.to_string()).unwrap();
+        }
+        assert_eq!(live.encoding(false).unwrap().obs, replay.encoding(false).unwrap().obs);
+        assert_eq!(live.encoding(false).unwrap().mask, replay.encoding(false).unwrap().mask);
+        assert!(live.snapshot().can_riichi);
+        let before = live.encoding(false).unwrap().clone();
+        let fork = live.fork_reach().unwrap();
+        assert!(fork.snapshot().can_act);
+        assert!(!fork.snapshot().can_riichi);
+        assert_eq!(before.obs, live.encoding(false).unwrap().obs);
+        assert_eq!(before.mask, live.encoding(false).unwrap().mask);
+    }
 }

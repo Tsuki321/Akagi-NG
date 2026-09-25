@@ -18,11 +18,13 @@ class EngineDeviceTest {
             val check = session.modelCheck()
             assertTrue(check.detail, check.ok)
             val times = mutableListOf<Long>()
-            repeat(30) {
-                val advice = session.offlineReplay()
+            repeat(30) { iteration ->
+                val players = if (iteration % 2 == 0) 4 else 3
+                val advice = session.offlineReplay(players)
+                assertTrue(advice.playerCount == players)
                 assertTrue(advice.legalMask and (1L shl advice.recommended.index) != 0L)
                 assertTrue(advice.recommended.score.isFinite())
-                assertTrue(advice.recommended.type in setOf("dahai", "reach", "hora", "ankan", "kakan", "none"))
+                assertTrue(advice.recommended.type in setOf("dahai", "reach", "hora", "ankan", "kakan", "nukidora", "none"))
                 times += advice.latencyMs
             }
             val sorted = times.sorted()
@@ -37,6 +39,25 @@ class EngineDeviceTest {
                 .put("environment", "Android emulator; not an Exynos device benchmark")
             val directory = File(context.getExternalFilesDir(null), "measurements").apply { mkdirs() }
             File(directory, "local-mortal.json").writeText(report.toString(2))
+        }
+    }
+
+    @Test fun foregroundRecomputeUsesLiveStateAndResetClearsTheDecision() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        for (players in listOf(4, 3)) {
+            MortalSession(context).use { session ->
+                var original: org.akagi.mobile.engine.EngineAdvice? = null
+                context.assets.open("models/smoke_${players}p.jsonl").bufferedReader().useLines { lines ->
+                    lines.filter(String::isNotBlank).forEach { event ->
+                        session.acceptMjai(event)?.let { original = it }
+                    }
+                }
+                val result = session.recomputePending()
+                assertTrue(original != null && result != null)
+                assertTrue(original!!.recommended.eventJson == result!!.recommended.eventJson)
+                session.reset()
+                assertTrue(session.recomputePending() == null)
+            }
         }
     }
 }

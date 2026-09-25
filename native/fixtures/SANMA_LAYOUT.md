@@ -28,3 +28,5 @@ The deployed three-player Mortal v4 model uses 775 channels over the 34 tile axi
 | 724–740, 741–757, 758–774 | Single-player tenpai probability, win probability, relative expected value |
 
 Action indices remain separate from observation rows: 0–36 discard/kan tile choice, 37 riichi, 38 pon, 39 kan, 40 kita, 41 win, 42 abortive draw, 43 pass. The single-player draw horizon retains division by four, as in the historical binary. These historical normalizations are part of the checkpoint's input contract and must not be made more intuitive during a port.
+
+Call history padding also retains a four-seat absolute traversal before applying the three-seat relative mapping. This makes `pon(actor=0, target=2)` add a blank row to player 0's history and age player 2's just-called tile by one row. The same behavior is verified for every absolute caller and target pair.

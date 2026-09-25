@@ -75,6 +75,9 @@ class GameBrowser(
         .build()
 
     val webView = WebView(context).apply {
+        // AndroidView's outer bounds alone do not give Chromium a fixed viewport.
+        // WRAP_CONTENT leaves pages made only of positioned elements at height 0.
+        layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         id = View.generateViewId()
         contentDescription = "Mahjong Soul game"
         keepScreenOn = true

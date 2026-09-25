@@ -103,8 +103,22 @@ class AnalysisViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun setVisible(value: Boolean) {
-        visible.set(value)
+        val wasVisible = visible.getAndSet(value)
         if (!value) mutable.update { it.copy(advice = null) }
+        if (value && !wasVisible) {
+            val capturedEpoch = epoch.get()
+            submit {
+                if (capturedEpoch != epoch.get() || !visible.get()) return@submit
+                try {
+                    val advice = mortal.recomputePending()?.toUi()
+                    mutable.update { old ->
+                        if (capturedEpoch != epoch.get() || !visible.get()) old else old.copy(advice = advice)
+                    }
+                } catch (_: Exception) {
+                    mutable.update { old -> if (capturedEpoch != epoch.get()) old else old.copy(advice = null) }
+                }
+            }
+        }
     }
 
     fun checkModels() {

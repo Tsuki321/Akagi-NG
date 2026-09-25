@@ -4,6 +4,10 @@ The upstream candidate declares v4's 775-channel shape but implements only its v
 
 Akagi's mobile v4 layout was reconstructed against the actual bundled CPython 3.12 libriichi3p library. The source changes preserve the measured ABI: score and EV normalization at 105,000 and 40,000; three rank and round channels; four dora-owned channels; two opponent riichi channels; kita between daiminkan and ankan; the historical wall denominator of 69 and four-player draw horizon in the single-player features. Exhausted 2m–8m counts and 1m/9m dora cycling are restored. The dora-owned observation does not receive a synthetic bonus on North extraction.
 
+North bonuses are tracked separately for actual winning-hand scores, while the historical single-player estimate omits them. The historical single-player ura calculation retains ordinary tile predecessors, including `9m.prev() == 8m`. Call history padding traverses four absolute seats and then maps them to three relative seats; the unused fourth seat affects discard aging on wraparound calls. All six caller/target combinations are included in the parity traces.
+
+The rank feature likewise rotates four score slots (including a zero fourth slot), then ranks the first three. This historical behavior is preserved for model compatibility and is checked using all three local seat positions.
+
 PyO3/NumPy imports, attributes and wrappers are removed as for the four-player subset. The original state tests mix native v5 behavior and unavailable manzu tiles, so they are retained in source but are not used as deployment acceptance tests. Generic algorithm tests, ABI tests, measured-channel tests, and full observation, mask and action parity against the historical binary run in CI. Android enables this model only when that comparison passes. Declared dimensions alone never approve compatibility.
 
 Reproduce this subset using `python scripts/mobile/vendor_mortal.py --sanma PATH_TO_PINNED_CHECKOUT/Mortal`. The script removes Python glue and applies the committed `scripts/mobile/sanma_legacy.patch`; it does not compile anything.

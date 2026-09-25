@@ -241,6 +241,7 @@ private fun GameScreen(
             onDismissRequest = { showSettings = false },
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
             containerColor = Ink,
+            contentColor = MaterialTheme.colorScheme.onSurface,
             dragHandle = null,
         ) {
             Column(
@@ -255,7 +256,7 @@ private fun GameScreen(
                     }
                     SmallIconButton("Close settings", "close", Modifier.testTag("close_settings")) { showSettings = false }
                 }
-                Surface(shape = RoundedCornerShape(16.dp), color = Color(0xFF1B3033)) {
+                Surface(shape = RoundedCornerShape(16.dp), color = Color(0xFF1B3033), contentColor = MaterialTheme.colorScheme.onSurface) {
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(if (browserState.error != null) "Connection needs attention" else state.status.label, fontWeight = FontWeight.SemiBold)
                         Text(browserState.error ?: state.status.detail, color = Muted, style = MaterialTheme.typography.bodyMedium)
@@ -328,7 +329,7 @@ private fun CompactAdvice(advice: UiAdvice?, status: UiStatus, dragModifier: Mod
 
 @Composable
 private fun AdviceStrip(advice: UiAdvice?, status: UiStatus, dragModifier: Modifier, onSettings: () -> Unit, onCollapse: () -> Unit) {
-    Surface(Modifier.widthIn(min = 240.dp).testTag("advice_strip"), color = Ink.copy(alpha = .96f), shape = RoundedCornerShape(18.dp), shadowElevation = 3.dp, border = androidx.compose.foundation.BorderStroke(1.dp, Mint.copy(alpha = .18f))) {
+    Surface(Modifier.widthIn(min = 240.dp).testTag("advice_strip"), color = Ink.copy(alpha = .96f), contentColor = MaterialTheme.colorScheme.onSurface, shape = RoundedCornerShape(18.dp), shadowElevation = 3.dp, border = androidx.compose.foundation.BorderStroke(1.dp, Mint.copy(alpha = .18f))) {
         Column(Modifier.padding(start = 12.dp, end = 4.dp, bottom = 12.dp)) {
             Row(Modifier.fillMaxWidth().then(dragModifier), verticalAlignment = Alignment.CenterVertically) {
                 StatusDot(status.tone)
