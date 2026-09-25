@@ -854,11 +854,15 @@ impl PlayerState {
     }
 
     pub(super) fn pad_kawa_for_pon_or_daiminkan(&mut self, abs_actor: u8, abs_target: u8) {
-        let mut i = (abs_target + 1) % NUM_PLAYERS as u8;
+        // Frozen v4 traverses four absolute seats here, then maps each to a
+        // three-player relative seat. The unused fourth seat therefore adds
+        // padding on wraparound calls. Its effect on discard age is measured
+        // in the bundled libriichi3p reference and is part of the model ABI.
+        let mut i = (abs_target + 1) % 4;
         while i != abs_actor {
             let rel = self.rel(i);
             self.kawa[rel].push(None);
-            i = (i + 1) % NUM_PLAYERS as u8;
+            i = (i + 1) % 4;
         }
     }
 
@@ -1040,11 +1044,13 @@ impl PlayerState {
         Ok(())
     }
 
-    pub(super) fn get_rank(&self, mut scores_rel: [i32; NUM_PLAYERS]) -> u8 {
-        let scores_abs = {
-            scores_rel.rotate_right(self.player_id as usize);
-            scores_rel
-        };
+    pub(super) fn get_rank(&self, scores_rel: [i32; NUM_PLAYERS]) -> u8 {
+        // Historical v4 stores a zero fourth score, rotates all four slots,
+        // then ranks the first three. Preserve that input feature even where
+        // it differs from a modern three-seat rank calculation.
+        let mut padded = [scores_rel[0], scores_rel[1], scores_rel[2], 0];
+        padded.rotate_right(self.player_id as usize);
+        let scores_abs = [padded[0], padded[1], padded[2]];
         Rankings::new(scores_abs).rank_by_player[self.player_id as usize]
     }
 }

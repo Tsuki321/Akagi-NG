@@ -38,14 +38,6 @@
          if is_ron {
              let tid = winning_tile.deaka().as_usize();
              tehai[tid] += 1;
-@@ -542,6 +542,7 @@
-             let num_akas = self.akas_in_hand.iter().filter(|&&b| b).count() as u8;
-             self.doras_owned[0] - num_doras_in_tehai - num_akas
-         };
-+        let num_doras_in_fuuro = num_doras_in_fuuro + self.nukidora_count[0];
-         let prefer_riichi = self.scores[0] >= 1000;
-         let calc_double_riichi = can_discard && self.can_w_riichi;
- 
 --- a/native/vendor/mortal3p/src/state/mod.rs
 +++ b/native/vendor/mortal3p/src/state/mod.rs
 @@ -7,11 +7,12 @@
@@ -224,7 +216,25 @@
          self.doras_seen = 0;
          self.akas_in_hand.fill(false);
  
-@@ -1010,11 +1015,14 @@
+@@ -849,11 +854,15 @@
+     }
+ 
+     pub(super) fn pad_kawa_for_pon_or_daiminkan(&mut self, abs_actor: u8, abs_target: u8) {
+-        let mut i = (abs_target + 1) % NUM_PLAYERS as u8;
++        // Frozen v4 traverses four absolute seats here, then maps each to a
++        // three-player relative seat. The unused fourth seat therefore adds
++        // padding on wraparound calls. Its effect on discard age is measured
++        // in the bundled libriichi3p reference and is part of the model ABI.
++        let mut i = (abs_target + 1) % 4;
+         while i != abs_actor {
+             let rel = self.rel(i);
+             self.kawa[rel].push(None);
+-            i = (i + 1) % NUM_PLAYERS as u8;
++            i = (i + 1) % 4;
+         }
+     }
+ 
+@@ -1010,11 +1019,14 @@
      #[cfg(feature = "sanma")]
      fn nukidora(&mut self, actor: u8, pai: Tile) -> Result<()> {
          let actor_rel = self.rel(actor);
@@ -240,6 +250,25 @@
              // Tehai changed (3n+2 → 3n+1); refresh shanten and waits so the
              // upcoming rinshan tsumo evaluates can_tsumo_agari against the
              // post-nuki hand. Without this, the at_rinshan branch in `tsumo`
+@@ -1032,11 +1044,13 @@
+         Ok(())
+     }
+ 
+-    pub(super) fn get_rank(&self, mut scores_rel: [i32; NUM_PLAYERS]) -> u8 {
+-        let scores_abs = {
+-            scores_rel.rotate_right(self.player_id as usize);
+-            scores_rel
+-        };
++    pub(super) fn get_rank(&self, scores_rel: [i32; NUM_PLAYERS]) -> u8 {
++        // Historical v4 stores a zero fourth score, rotates all four slots,
++        // then ranks the first three. Preserve that input feature even where
++        // it differs from a modern three-seat rank calculation.
++        let mut padded = [scores_rel[0], scores_rel[1], scores_rel[2], 0];
++        padded.rotate_right(self.player_id as usize);
++        let scores_abs = [padded[0], padded[1], padded[2]];
+         Rankings::new(scores_abs).rank_by_player[self.player_id as usize]
+     }
+ }
 --- a/native/vendor/mortal3p/src/tile.rs
 +++ b/native/vendor/mortal3p/src/tile.rs
 @@ -119,6 +119,8 @@
@@ -251,20 +280,20 @@
          let kind = tile.0 / 9;
          let num = tile.0 % 9;
  
-@@ -138,6 +140,8 @@
-             return self;
-         }
-         let tile = self.deaka();
-+        if tile.0 == tu8!(1m) { return t!(9m); }
-+        if tile.0 == tu8!(9m) { return t!(1m); }
-         let kind = tile.0 / 9;
-         let num = tile.0 % 9;
-         if kind < 3 {
-@@ -294,6 +298,7 @@
+@@ -294,8 +296,14 @@
      fn next_prev() {
          MJAI_PAI_STRINGS.iter().take(37).for_each(|&s| {
              let tile: Tile = s.parse().unwrap();
-+            if (1..=7).contains(&tile.deaka().as_u8()) { return; }
++            // The deployed sanma model retains ordinary predecessors for its
++            // ura calculation even though forward dora cycling is 1m <-> 9m.
++            if tile.deaka().as_u8() <= 8 { return; }
              assert_eq!(tile.prev().next(), tile.deaka());
              assert_eq!(tile.next().prev(), tile.deaka());
          });
+-    }
+-}
++        assert_eq!(t!(1m).next(), t!(9m));
++        assert_eq!(t!(9m).next(), t!(1m));
++        assert_eq!(t!(9m).prev(), t!(8m));
++    }
++}

@@ -129,35 +129,53 @@ class MortalSession(context: Context) : Closeable {
             }
             check(handle != 0L) { "Waiting for a verified game start or reconnection replay" }
             val snapshot = JSONObject(NativeMortal.accept(handle, json))
-            if (!snapshot.getBoolean("can_act")) return null
-            val passIndex = if (players == 4) 45 else 43
-            if (snapshot.getLong("mask_bits") == (1L shl passIndex)) return null
-            val result = inferState(handle, snapshot)
-            val best = parseAction(result.getJSONObject("recommended"))
-            val alternatives = result.getJSONArray("alternatives").objects().map(::parseAction)
-            // Desktop MortalBot looks ahead whenever riichi is in the top three.
-            val reachDiscard = if (alternatives.take(3).any { it.type == "reach" }) {
-                val fork = NativeMortal.forkReach(handle)
-                try {
-                    val forkState = JSONObject(NativeMortal.snapshot(fork))
-                    parseAction(inferState(fork, forkState).getJSONObject("recommended"))
-                } finally { NativeMortal.destroy(fork) }
-            } else null
-            return EngineAdvice(
-                recommended = best,
-                alternatives = alternatives,
-                shanten = result.getInt("shanten"),
-                furiten = result.getBoolean("at_furiten"),
-                latencyMs = SystemClock.elapsedRealtime() - started,
-                playerCount = players,
-                reachDiscard = reachDiscard,
-                legalMask = result.getLong("legal_mask"),
-                agariGuardApplied = result.optBoolean("agari_guard_applied", false),
-            )
+            return evaluatePending(snapshot, started)
         } catch (error: Throwable) {
             resetState()
             throw error
         }
+    }
+
+    /** Re-run inference only if the current verified state still has a decision. */
+    @Synchronized
+    fun recomputePending(): EngineAdvice? {
+        backgroundOnly()
+        if (handle == 0L) return null
+        val started = SystemClock.elapsedRealtime()
+        return try {
+            evaluatePending(JSONObject(NativeMortal.snapshot(handle)), started)
+        } catch (error: Throwable) {
+            resetState()
+            throw error
+        }
+    }
+
+    private fun evaluatePending(snapshot: JSONObject, started: Long): EngineAdvice? {
+        if (!snapshot.getBoolean("can_act")) return null
+        val passIndex = if (players == 4) 45 else 43
+        if (snapshot.getLong("mask_bits") == (1L shl passIndex)) return null
+        val result = inferState(handle, snapshot)
+        val best = parseAction(result.getJSONObject("recommended"))
+        val alternatives = result.getJSONArray("alternatives").objects().map(::parseAction)
+        // Desktop MortalBot looks ahead whenever riichi is in the top three.
+        val reachDiscard = if (alternatives.take(3).any { it.type == "reach" }) {
+            val fork = NativeMortal.forkReach(handle)
+            try {
+                val forkState = JSONObject(NativeMortal.snapshot(fork))
+                parseAction(inferState(fork, forkState).getJSONObject("recommended"))
+            } finally { NativeMortal.destroy(fork) }
+        } else null
+        return EngineAdvice(
+            recommended = best,
+            alternatives = alternatives,
+            shanten = result.getInt("shanten"),
+            furiten = result.getBoolean("at_furiten"),
+            latencyMs = SystemClock.elapsedRealtime() - started,
+            playerCount = players,
+            reachDiscard = reachDiscard,
+            legalMask = result.getLong("legal_mask"),
+            agariGuardApplied = result.optBoolean("agari_guard_applied", false),
+        )
     }
 
     /** Executes the real exported models on CI-generated desktop observations. */

@@ -117,6 +117,33 @@ def fixture_traces(players: int) -> dict[str, list[dict[str, Any]]]:
             draw("N"), {"type": "nukidora", "actor": 0, "pai": "N"},
             draw("N"), {"type": "nukidora", "actor": 0, "pai": "N"}, draw("C"),
         ]
+        traces["sanma_south3"] = starting_events("F F F 1p 2p 3p 4p 5p 6p 7s 8s 9s C".split(), players=3, dealer=1) + [draw("?", 1), discard("C", 1)]
+        traces["sanma_south3"][1].update(bakaze="S", kyoku=3, scores=[20000, 45000, 40000, 0])
+        for seat in (1, 2):
+            rotated = json.loads(json.dumps(traces["sanma_kita"]))
+            rotated[0]["id"] = seat
+            for event in rotated:
+                for field in ("actor", "target", "oya"):
+                    if field in event:
+                        event[field] = (event[field] + seat) % 3
+                for field in ("scores", "tehais", "deltas", "names"):
+                    if field in event:
+                        values = event[field]
+                        event[field] = values[3 - seat:3] + values[:3 - seat] + values[3:]
+            traces[f"sanma_kita_seat{seat}"] = rotated
+        # The legacy v4 discard history retains four-seat padding during
+        # calls, even though relative seats are three-player. Cover every
+        # absolute caller/target combination to catch that ABI edge case.
+        for actor in range(3):
+            for target in range(3):
+                if actor == target:
+                    continue
+                events = starting_events("5pr 5p 1p 2p 3p 2s 3s 4s 7s 8s 9s F E".split(), players=3, dealer=target)
+                events[0]["id"] = actor
+                events[1]["tehais"][actor], events[1]["tehais"][0] = events[1]["tehais"][0], events[1]["tehais"][actor]
+                events.extend([draw("?", target), discard("5p", target),
+                               {"type": "pon", "actor": actor, "target": target, "pai": "5p", "consumed": ["5pr", "5p"]}])
+                traces[f"sanma_pon_actor{actor}_target{target}"] = events
         return traces
     traces = {
         "discard_red": [json.loads(line) for line in (ROOT / "native/fixtures/smoke_4p.jsonl").read_text().splitlines() if line],
@@ -168,7 +195,7 @@ class Recorder:
 
 def capture(library: Any, events: list[dict[str, Any]], forced: int | None = None) -> list[dict[str, Any]]:
     recorder = Recorder(forced)
-    bot = library.mjai.Bot(recorder, 0)
+    bot = library.mjai.Bot(recorder, events[0].get("id", 0))
     decisions = []
     for line, event in enumerate(events):
         before = len(recorder.batches)
@@ -189,7 +216,8 @@ def canonical_event(event: dict[str, Any]) -> dict[str, Any]:
 
 
 def validate_native(cli: Path, trace_path: Path, events: list[dict[str, Any]], desktop: list[dict[str, Any]], library: Any, players: int) -> dict[str, Any]:
-    process = subprocess.run([str(cli), str(trace_path), "0", str(players)], check=False, text=True, capture_output=True)
+    player = events[0].get("id", 0)
+    process = subprocess.run([str(cli), str(trace_path), str(player), str(players)], check=False, text=True, capture_output=True)
     trace_path.with_suffix(".native.jsonl").write_text(process.stdout, encoding="utf-8")
     trace_path.with_suffix(".native.stderr.txt").write_text(process.stderr, encoding="utf-8")
     np.savez_compressed(trace_path.with_suffix(".desktop.npz"), **{
@@ -213,7 +241,7 @@ def validate_native(cli: Path, trace_path: Path, events: list[dict[str, Any]], d
             np.testing.assert_allclose(np.asarray(actual["kan"]["obs"], dtype=np.float32).reshape(reference["kan_obs"].shape),
                                        reference["kan_obs"], atol=1e-6, rtol=1e-6)
         if actual.get("reach") is not None:
-            replay = events[: reference["line"] + 1] + [{"type": "reach", "actor": 0}]
+            replay = events[: reference["line"] + 1] + [{"type": "reach", "actor": player}]
             reach_reference = capture(library, replay)[-1]
             np.testing.assert_array_equal(actual["reach"]["mask"], reach_reference["mask"])
             np.testing.assert_allclose(np.asarray(actual["reach"]["obs"], dtype=np.float32).reshape(reach_reference["obs"].shape),
