@@ -3,6 +3,7 @@ package org.akagi.mobile
 import android.app.Activity
 import android.view.View
 import android.view.ViewGroup
+import android.view.inspector.WindowInspector
 import android.webkit.WebView
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
@@ -77,6 +78,44 @@ internal fun awaitWindowFocus(activity: Activity, timeoutMs: Long = 10_000) {
     error("The game window did not regain input focus")
 }
 
+/** A Compose dialog is a separate Android window; semantics can exist before it takes focus. */
+internal fun awaitDialogWindowFocus(activity: Activity, timeoutMs: Long = 10_000) {
+    val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs)
+    val focused = AtomicBoolean()
+    while (System.nanoTime() < deadline) {
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            focused.set(WindowInspector.getGlobalWindowViews().any { view ->
+                view !== activity.window.decorView && view.hasWindowFocus() && view.isShown &&
+                    !view.isLayoutRequested && view.width > 0 && view.height > 0
+            })
+        }
+        if (focused.get()) return
+        Thread.sleep(50)
+    }
+    error("The settings dialog did not receive input focus")
+}
+
+/** Wait for Chromium's viewport resize as well as the Activity configuration change. */
+internal fun awaitBrowserViewport(activity: Activity, timeoutMs: Long = 10_000) {
+    val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs)
+    val dimensions = IntArray(2)
+    while (System.nanoTime() < deadline) {
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            val webView = checkNotNull(findWebView(activity.window.decorView))
+            dimensions[0] = webView.width
+            dimensions[1] = webView.height
+        }
+        val viewport = JSONObject(evaluate(activity, "JSON.stringify({width:innerWidth,height:innerHeight,ratio:devicePixelRatio})") as String)
+        val ratio = viewport.getDouble("ratio")
+        if (dimensions[0] > 0 && dimensions[1] > 0 &&
+            kotlin.math.abs(viewport.getDouble("width") * ratio - dimensions[0]) < 4 &&
+            kotlin.math.abs(viewport.getDouble("height") * ratio - dimensions[1]) < 4
+        ) return
+        Thread.sleep(50)
+    }
+    error("The browser viewport did not resize to the visible game view")
+}
+
 /** Use the measured browser viewport, which may differ from display density. */
 internal fun tapBrowserElement(activity: Activity, elementId: String) {
     val element = JSONObject.quote(elementId)
@@ -97,6 +136,21 @@ internal fun tapBrowserElement(activity: Activity, elementId: String) {
 
 /** Pulled by CI from the target APK's externalFilesDir/screenshots. */
 internal fun captureScreenshot(activity: Activity, name: String) {
+    // Android composition and the WebView renderer draw after Compose semantics
+    // are ready. Capture the displayed frame rather than a preceding transition.
+    val drawn = CountDownLatch(1)
+    InstrumentationRegistry.getInstrumentation().runOnMainSync {
+        checkNotNull(findWebView(activity.window.decorView)).postVisualStateCallback(
+            System.nanoTime(), object : WebView.VisualStateCallback() {
+                override fun onComplete(requestId: Long) {
+                    activity.window.decorView.postOnAnimation {
+                        activity.window.decorView.postOnAnimation { drawn.countDown() }
+                    }
+                }
+            },
+        )
+    }
+    check(drawn.await(10, TimeUnit.SECONDS)) { "The browser did not finish drawing screenshot $name" }
     val directory = File(checkNotNull(activity.getExternalFilesDir(null)), "screenshots")
     check(directory.isDirectory || directory.mkdirs())
     val destination = File(directory, "$name.png")

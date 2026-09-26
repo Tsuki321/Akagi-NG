@@ -7,6 +7,7 @@ import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertWidthIsAtLeast
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -41,6 +42,7 @@ class GameShellTest {
         awaitBrowser(compose.activity, "window.fixtureReady")
         if (testName.methodName != "a00_firstLaunchEducationDismissesAndReturnsInputToTheGame") dismissFullscreenEducation(compose.activity)
         awaitBrowser(compose.activity, "innerHeight > 200 && document.body.getBoundingClientRect().height > 200")
+        awaitBrowserViewport(compose.activity)
     }
 
     @Test fun a00_firstLaunchEducationDismissesAndReturnsInputToTheGame() {
@@ -73,21 +75,28 @@ class GameShellTest {
         compose.onNodeWithTag("advice_strip").assertIsDisplayed()
         compose.onNodeWithTag("open_settings").assertHeightIsAtLeast(48.dp).assertWidthIsAtLeast(48.dp).performClick()
         compose.onNodeWithTag("settings_sheet").assertIsDisplayed()
+        awaitDialogWindowFocus(compose.activity)
         captureScreenshot(compose.activity, "03_fixture_settings_landscape")
         compose.onNodeWithTag("close_settings").assertHeightIsAtLeast(48.dp).performClick()
         compose.onNodeWithTag("settings_sheet").assertDoesNotExist()
         compose.onNodeWithTag("advice_strip").assertIsDisplayed()
         awaitWindowFocus(compose.activity)
-        UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).pressBack()
+        assertTrue(UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).pressBack())
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("advice_strip").fetchSemanticsNodes().isEmpty() }
         compose.onNodeWithTag("advice_chip").assertIsDisplayed()
         compose.onNodeWithTag("advice_strip").assertDoesNotExist()
         compose.onNodeWithTag("advice_chip").performClick()
         compose.onNodeWithTag("open_settings").performClick()
-        UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).pressBack()
+        compose.onNodeWithTag("settings_sheet").assertIsDisplayed()
+        compose.waitForIdle()
+        awaitDialogWindowFocus(compose.activity)
+        assertTrue(UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).pressBack())
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("settings_sheet").fetchSemanticsNodes().isEmpty() }
         compose.onNodeWithTag("settings_sheet").assertDoesNotExist()
         awaitWindowFocus(compose.activity)
         compose.onNodeWithTag("collapse_advice").performClick()
         compose.onNodeWithTag("advice_chip").assertIsDisplayed()
+        captureScreenshot(compose.activity, "08_fixture_after_settings_back")
     }
 
     @Test fun settingsDispatchRealCallbacksAndExplainExistingGoogleAccounts() {
@@ -127,10 +136,14 @@ class GameShellTest {
         compose.runOnUiThread { compose.activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT }
         compose.waitUntil(10_000) { compose.activity.resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT }
         compose.onNodeWithTag("advice_chip").assertIsDisplayed()
+        awaitBrowser(compose.activity, "innerHeight > innerWidth")
+        awaitBrowserViewport(compose.activity)
         assertEquals(document, evaluate(compose.activity, "window.fixtureDocumentToken"))
         captureScreenshot(compose.activity, "04_fixture_compact_portrait")
         compose.runOnUiThread { compose.activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE }
         compose.waitUntil(10_000) { compose.activity.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE }
+        awaitBrowser(compose.activity, "innerWidth > innerHeight")
+        awaitBrowserViewport(compose.activity)
         compose.activityRule.scenario.moveToState(Lifecycle.State.CREATED)
         compose.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
         assertEquals(document, evaluate(compose.activity, "window.fixtureDocumentToken"))

@@ -119,6 +119,13 @@ def fixture_traces(players: int) -> dict[str, list[dict[str, Any]]]:
         ]
         traces["sanma_south3"] = starting_events("F F F 1p 2p 3p 4p 5p 6p 7s 8s 9s C".split(), players=3, dealer=1) + [draw("?", 1), discard("C", 1)]
         traces["sanma_south3"][1].update(bakaze="S", kyoku=3, scores=[20000, 45000, 40000, 0])
+        for label, waiting_hand in {
+            "kokushi": "1m 9m 1p 9p 1s 9s E S W P F C C",
+            "yakuhai": "E E E 1p 2p 3p 4p 5p 6p 7s 8s 9s N",
+        }.items():
+            traces[f"sanma_ron_kita_{label}"] = starting_events(waiting_hand.split(), players=3, dealer=1) + [
+                draw("?", 1), {"type": "nukidora", "actor": 1, "pai": "N"},
+            ]
         for seat in (1, 2):
             rotated = json.loads(json.dumps(traces["sanma_kita"]))
             rotated[0]["id"] = seat

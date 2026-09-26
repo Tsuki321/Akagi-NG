@@ -1039,6 +1039,34 @@ impl PlayerState {
         } else {
             self.witness_tile(pai)?;
             self.update_doras_owned(actor_rel, pai);
+            self.last_kawa_tile = Some(pai);
+            // The historical three-player engine permits ron on extracted
+            // North with an existing yaku; kita itself does not grant chankan.
+            if !self.at_furiten && self.waits[pai.as_usize()] {
+                if self.riichi_accepted[0] || self.tiles_left == 0 {
+                    self.last_cans.can_ron_agari = true;
+                } else {
+                    let mut complete_hand = self.tehai;
+                    complete_hand[pai.as_usize()] += 1;
+                    self.last_cans.can_ron_agari = AgariCalculator {
+                        tehai: &complete_hand,
+                        is_menzen: self.is_menzen,
+                        chis: &self.chis,
+                        pons: &self.pons,
+                        minkans: &self.minkans,
+                        ankans: &self.ankans,
+                        bakaze: self.bakaze.as_u8(),
+                        jikaze: self.jikaze.as_u8(),
+                        winning_tile: pai.as_u8(),
+                        is_ron: true,
+                    }.has_yaku();
+                }
+                if self.last_cans.can_ron_agari {
+                    self.to_mark_same_cycle_furiten = Some(());
+                } else {
+                    self.at_furiten = true;
+                }
+            }
         }
         self.can_w_riichi = false;
         Ok(())
