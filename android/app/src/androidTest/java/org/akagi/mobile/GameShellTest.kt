@@ -81,7 +81,9 @@ class GameShellTest {
         compose.onNodeWithTag("settings_sheet").assertDoesNotExist()
         compose.onNodeWithTag("advice_strip").assertIsDisplayed()
         awaitWindowFocus(compose.activity)
-        assertTrue(UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).pressBack())
+        // Android 16's handled predictive Back can return false from the
+        // instrumentation injection API. Assert the visible result below.
+        UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).pressBack()
         compose.waitUntil(5_000) { compose.onAllNodesWithTag("advice_strip").fetchSemanticsNodes().isEmpty() }
         compose.onNodeWithTag("advice_chip").assertIsDisplayed()
         compose.onNodeWithTag("advice_strip").assertDoesNotExist()
@@ -90,7 +92,7 @@ class GameShellTest {
         compose.onNodeWithTag("settings_sheet").assertIsDisplayed()
         compose.waitForIdle()
         awaitDialogWindowFocus(compose.activity)
-        assertTrue(UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).pressBack())
+        UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).pressBack()
         compose.waitUntil(5_000) { compose.onAllNodesWithTag("settings_sheet").fetchSemanticsNodes().isEmpty() }
         compose.onNodeWithTag("settings_sheet").assertDoesNotExist()
         awaitWindowFocus(compose.activity)
