@@ -24,10 +24,27 @@ from pathlib import Path
 out = Path('artifacts/release-device')
 
 def nodes():
-    subprocess.run(['adb','shell','uiautomator','dump','/sdcard/release-window.xml'], check=True, stdout=subprocess.DEVNULL)
-    raw = subprocess.check_output(['adb','shell','cat','/sdcard/release-window.xml'], text=True)
-    (out/'window.xml').write_text(raw)
-    return list(ET.fromstring(raw).iter('node'))
+    last_error = None
+    for attempt in range(3):
+        # A failed dump can leave an old file behind while adb still returns 0.
+        # Each attempt reads only its own new filename, never a previous dump.
+        remote = f'/sdcard/release-window-{time.monotonic_ns()}-{attempt}.xml'
+        try:
+            subprocess.run(['adb','shell','uiautomator','dump',remote], check=True,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, timeout=30)
+            raw = subprocess.check_output(['adb','shell','cat',remote], text=True,
+                                          stderr=subprocess.PIPE, timeout=20)
+            root = ET.fromstring(raw)
+            result = list(root.iter('node'))
+            if root.tag != 'hierarchy' or not result:
+                raise ValueError('UI dump did not contain a populated hierarchy')
+            (out/'window.xml').write_text(raw, encoding='utf-8')
+            return result
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, ET.ParseError, ValueError) as error:
+            last_error = error
+            if attempt < 2:
+                time.sleep(1)
+    raise AssertionError('Could not read a fresh valid UI hierarchy after 3 attempts') from last_error
 
 def click(match):
     for node in nodes():
