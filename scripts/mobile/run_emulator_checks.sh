@@ -50,6 +50,16 @@ sleep 45
 adb exec-out screencap -p > "$out/public-game-80s.png"
 sleep 40
 adb exec-out screencap -p > "$out/public-game.png"
+if [ "$device" = a54-size ]; then
+  # Open the visible public Login control; never enter or submit account data.
+  python - "$size" <<'PY'
+import subprocess, sys
+width, height = map(int, sys.argv[1].split('x'))
+subprocess.run(['adb','shell','input','tap',str(round(height*.729)),str(round(width*.436))],check=True)
+PY
+  sleep 15
+  adb exec-out screencap -p > "$out/public-login.png"
+fi
 adb shell dumpsys meminfo org.akagi.mobile.debug > "$out/memory.txt"
 adb shell dumpsys gfxinfo org.akagi.mobile.debug > "$out/rendering.txt"
 adb shell pidof org.akagi.mobile.debug > "$out/live-process.txt"
