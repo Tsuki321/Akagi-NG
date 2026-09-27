@@ -31,10 +31,10 @@ jobs:
           workspaces: native
       - name: Native unit and rules tests
         working-directory: native
-        run: cargo test --workspace
+        run: cargo test --workspace --locked
       - name: Build reference observation executable
         working-directory: native
-        run: cargo build --release -p akagi-mobile-core --bin mortal-fixtures
+        run: cargo build --locked --release -p akagi-mobile-core --bin mortal-fixtures
       - name: Install model conversion dependencies
         run: |
           python -m pip install --disable-pip-version-check torch==2.11.0 --index-url https://download.pytorch.org/whl/cpu
@@ -52,7 +52,7 @@ jobs:
           RUSTFLAGS: '-C link-arg=-Wl,-z,max-page-size=16384'
         run: |
           export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
-          cargo ndk -t arm64-v8a -t x86_64 -o ../android/app/src/main/jniLibs build --release -p akagi-mobile-core --lib
+          cargo ndk -t arm64-v8a -t x86_64 -o ../android/app/src/main/jniLibs build --locked --release -p akagi-mobile-core --lib
       - name: Upload native libraries and model assets
         uses: actions/upload-artifact@v4
         with:
@@ -124,6 +124,82 @@ jobs:
           path: |
             android/app/build/reports/
             android/app/build/test-results/
+          if-no-files-found: ignore
+
+  package:
+    name: Sign installable APK
+    needs: [assemble, emulator]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: mobile-engine
+          path: android/app/src/main
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Prepare bundled resources and signing identity
+        env:
+          SIGNING_BASE64: ${{ secrets.AKAGI_ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-36' 'build-tools;36.0.0'
+          test -n "$SIGNING_BASE64"
+          printf '%s' "$SIGNING_BASE64" | base64 --decode > "$RUNNER_TEMP/akagi-signing.p12"
+          mkdir -p android/app/src/main/assets/protocol android/app/src/main/assets/notices
+          cp assets/liqi.json android/app/src/main/assets/protocol/liqi.json
+          cp LICENSE android/app/src/main/assets/notices/APP_LICENSE.txt
+          cp models/LICENSE android/app/src/main/assets/notices/MODELS_LICENSE.txt
+          cp lib/LICENSE android/app/src/main/assets/notices/LIBRARIES_LICENSE.txt
+          cp native/vendor/mortal/LICENSE android/app/src/main/assets/notices/MORTAL_LICENSE.txt
+          cp native/vendor/mortal3p/LICENSE android/app/src/main/assets/notices/MORTAL3P_LICENSE.txt
+      - name: Build signed app with production settings
+        working-directory: android
+        env:
+          AKAGI_SIGNING_FILE: ${{ runner.temp }}/akagi-signing.p12
+          AKAGI_SIGNING_PASSWORD: ${{ secrets.AKAGI_ANDROID_KEYSTORE_PASSWORD }}
+          AKAGI_VERSION_CODE: ${{ github.run_number }}
+        run: bash ./gradlew --no-daemon assembleRelease lintRelease
+      - name: Verify signature, assets and native alignment
+        run: |
+          python scripts/mobile/check_apk.py android/app/build/outputs/apk/release/app-release.apk
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs android/app/build/outputs/apk/release/app-release.apk
+          mkdir -p artifacts/distribution
+          cp android/app/build/outputs/apk/release/app-release.apk artifacts/distribution/Akagi-Android-16.apk
+          sha256sum artifacts/distribution/Akagi-Android-16.apk > artifacts/distribution/SHA256SUMS.txt
+      - name: Enable emulator acceleration
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Verify the signed release with real local models
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          ram-size: 4096M
+          emulator-boot-timeout: 600
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -memory 4096
+          disable-animations: true
+          script: bash scripts/mobile/check_release.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Akagi-Android-16
+          path: artifacts/distribution/
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-release-reports
+          path: |
+            android/app/build/reports/
+            android/app/build/test-results/
+            artifacts/release-device/
           if-no-files-found: ignore
 
   emulator:

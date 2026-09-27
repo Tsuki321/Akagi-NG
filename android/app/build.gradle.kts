@@ -12,7 +12,7 @@ android {
         applicationId = "org.akagi.mobile"
         minSdk = 36
         targetSdk = 36
-        versionCode = 1
+        versionCode = providers.environmentVariable("AKAGI_VERSION_CODE").orElse("1").get().toInt()
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
@@ -21,12 +21,25 @@ android {
         }
     }
 
+    signingConfigs {
+        create("distribution") {
+            val signingFile = providers.environmentVariable("AKAGI_SIGNING_FILE").orNull
+            if (signingFile != null) {
+                storeFile = file(signingFile)
+                storeType = "PKCS12"
+                storePassword = providers.environmentVariable("AKAGI_SIGNING_PASSWORD").orNull
+                keyAlias = "akagi"
+                keyPassword = storePassword
+            }
+        }
+    }
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
         }
         release {
+            signingConfig = signingConfigs.getByName("distribution")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")

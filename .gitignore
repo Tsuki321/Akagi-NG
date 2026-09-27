@@ -43,3 +43,4 @@ native/fixtures/generated/
 artifacts/
 *.keystore
 *.jks
+*.p12
