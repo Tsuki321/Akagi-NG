@@ -273,13 +273,18 @@ class MortalGraph(torch.nn.Module):
         return self.dqn(self.brain(obs), mask)
 
 
-def export_model(network: Any, players: int, output: Path, fixtures: Path, native_cli: Path | None, report: dict[str, Any], validate_sanma: bool = False) -> list[dict[str, Any]]:
+def export_model(network: Any, players: int, output: Path, fixtures: Path, native_cli: Path | None, report: dict[str, Any], validate_sanma: bool = False,
+                 *, checkpoint_path: Path | None = None, checkpoint_sha256: str | None = None) -> list[dict[str, Any]]:
     filename, channels, actions, expected_sha = CHECKPOINTS[players]
-    checkpoint = ROOT / "models" / filename
+    checkpoint = checkpoint_path if checkpoint_path is not None else ROOT / "models" / filename
+    if checkpoint_path is not None:
+        filename = checkpoint.name
+        expected_sha = checkpoint_sha256 or sha256(checkpoint)
     assert sha256(checkpoint) == expected_sha, f"Unexpected checkpoint: {checkpoint}"
     state = torch.load(checkpoint, map_location="cpu", weights_only=True)
     cfg = state["config"]
-    assert cfg["control"]["version"] == 4 and "policy_net" not in state
+    if cfg["control"]["version"] != 4 or "policy_net" in state or "current_dqn" not in state:
+        raise ValueError("Android replacement models must be Mortal v4 DQN checkpoints (current_dqn)")
     library = desktop_library(players)
     assert tuple(library.consts.obs_shape(4)) == (channels, 34)
     assert library.consts.ACTION_SPACE == actions
@@ -318,7 +323,7 @@ def export_model(network: Any, players: int, output: Path, fixtures: Path, nativ
     with torch.inference_mode():
         torch.onnx.export(graph, (torch.from_numpy(sample["obs"][None]), torch.from_numpy(sample["mask"][None])),
                           str(path), input_names=["obs", "mask"], output_names=["q_values"],
-                          opset_version=17, dynamo=False, do_constant_folding=True)
+                          opset_version=17, dynamo=False, do_constant_folding=True, external_data=False)
     onnx.checker.check_model(str(path))
     options = ort.SessionOptions()
     options.intra_op_num_threads = 2

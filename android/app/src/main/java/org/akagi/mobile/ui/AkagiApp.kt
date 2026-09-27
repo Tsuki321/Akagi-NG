@@ -5,6 +5,8 @@ import android.net.Uri
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -99,6 +101,8 @@ fun AkagiApp(
     onSessionReset: () -> Unit,
     onLoadLocalReplay: () -> Unit,
     onRunModelCheck: () -> Unit,
+    onImportModel: (Int, Uri) -> Unit = { _, _ -> },
+    onUseBundledModel: (Int) -> Unit = {},
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -118,7 +122,7 @@ fun AkagiApp(
     }
     ImmersiveGameWindow()
     AkagiTheme {
-        GameScreen(state, browser, onLoadLocalReplay, onRunModelCheck)
+        GameScreen(state, browser, onLoadLocalReplay, onRunModelCheck, onImportModel, onUseBundledModel)
     }
 }
 
@@ -155,6 +159,8 @@ private fun GameScreen(
     browser: GameBrowser,
     onLoadLocalReplay: () -> Unit,
     onRunModelCheck: () -> Unit,
+    onImportModel: (Int, Uri) -> Unit,
+    onUseBundledModel: (Int) -> Unit,
 ) {
     val context = LocalContext.current
     val activity = context.findActivity()
@@ -162,6 +168,14 @@ private fun GameScreen(
     var expanded by rememberSaveable { mutableStateOf(false) }
     var showSettings by rememberSaveable { mutableStateOf(false) }
     var showAccountHelp by rememberSaveable { mutableStateOf(false) }
+    var showModelHelp by rememberSaveable { mutableStateOf(false) }
+    // Separate launchers retain the intended mode across cancellation and Activity recreation.
+    val pickFourPlayer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) onImportModel(4, uri)
+    }
+    val pickThreePlayer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) onImportModel(3, uri)
+    }
     var allowPortrait by rememberSaveable { mutableStateOf(preferences.getBoolean("allow_portrait", false)) }
     var xFraction by rememberSaveable { mutableFloatStateOf(preferences.getFloat("chip_x", 0f)) }
     var yFraction by rememberSaveable { mutableFloatStateOf(preferences.getFloat("chip_y", 0f)) }
@@ -266,6 +280,15 @@ private fun GameScreen(
                     FilledTonalButton(onClick = { showSettings = false; browser.reload() }, modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("reload_game")) { Text("Reload game") }
                     FilledTonalButton(onClick = onLoadLocalReplay, enabled = !state.localReplayRunning, modifier = Modifier.weight(1f).heightIn(min = 48.dp).testTag("load_replay")) { Text(if (state.localReplayRunning) "Checking hand…" else "Check saved hand") }
                 }
+                HorizontalDivider(color = Color(0xFF304540))
+                Text("Models", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium)
+                Text("Each game mode uses its own model. Replace either one whenever you want.", color = Muted, fontSize = 13.sp)
+                ModelControl(state.fourPlayerModel, onChoose = { pickFourPlayer.launch(arrayOf("*/*")) }, onRestore = { onUseBundledModel(4) })
+                ModelControl(state.threePlayerModel, onChoose = { pickThreePlayer.launch(arrayOf("*/*")) }, onRestore = { onUseBundledModel(3) })
+                TextButton(onClick = { showModelHelp = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("model_help")) {
+                    Text("Use a Mortal .pth checkpoint")
+                }
+                HorizontalDivider(color = Color(0xFF304540))
                 SettingsToggle("Allow portrait", "Rotate freely while keeping your game open.", allowPortrait) { allowPortrait = it }
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
@@ -299,6 +322,41 @@ private fun GameScreen(
             confirmButton = { TextButton(onClick = { showAccountHelp = false }) { Text("Got it") } },
             dismissButton = { TextButton(onClick = { openExternal(context, Uri.parse("https://mahjongsoul.yo-star.com/")) }) { Text("Yostar support") } },
         )
+    }
+    if (showModelHelp) {
+        AlertDialog(
+            onDismissRequest = { showModelHelp = false },
+            title = { Text("Use your own Mortal model") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Convert your .pth checkpoint once with the Android model conversion workflow. Choose 4 or 3 players and provide the checkpoint's download URL.")
+                    Text("Download the resulting .akagimodel file. In this app, choose Import model under the matching game mode. The app checks the file before saving it.")
+                    Text("Mortal v4 DQN checkpoints with the matching observation layout are supported. After import, the model stays on your phone and runs locally. The other game mode keeps its own model.")
+                }
+            },
+            confirmButton = { TextButton(onClick = { showModelHelp = false }) { Text("Got it") } },
+            dismissButton = { TextButton(onClick = { openExternal(context, Uri.parse("https://github.com/Tsuki321/Akagi-NG/blob/android/fullscreen-app/docs/ANDROID_MODELS.md")) }) { Text("Conversion guide") } },
+        )
+    }
+}
+
+@Composable
+private fun ModelControl(model: UiModel, onChoose: () -> Unit, onRestore: () -> Unit) {
+    Surface(shape = RoundedCornerShape(16.dp), color = Color(0xFF1B3033), contentColor = MaterialTheme.colorScheme.onSurface) {
+        Column(Modifier.fillMaxWidth().padding(16.dp).testTag("model_${model.players}p"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(if (model.players == 4) "Four-player model" else "Three-player model", fontWeight = FontWeight.SemiBold)
+            Text(model.name, color = Mint, modifier = Modifier.testTag("model_${model.players}p_name"))
+            if (model.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+            model.message?.let { Text(it, color = Muted, fontSize = 12.sp, modifier = Modifier.testTag("model_${model.players}p_message")) }
+            FilledTonalButton(onClick = onChoose, enabled = !model.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("import_${model.players}p")) {
+                Text("Import model")
+            }
+            if (model.custom) {
+                TextButton(onClick = onRestore, enabled = !model.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("restore_${model.players}p")) {
+                    Text("Use bundled model")
+                }
+            }
+        }
     }
 }
 

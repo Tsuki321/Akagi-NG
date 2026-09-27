@@ -63,7 +63,7 @@ assert click(lambda a: a.get('content-desc','').startswith('Open Akagi advice'))
 time.sleep(1)
 assert click(lambda a: a.get('content-desc')=='Open settings'), 'Missing settings control'
 time.sleep(1)
-for _ in range(7):
+for _ in range(16):
     if click(lambda a: a.get('text')=='Check local model'):
         break
     subprocess.run(['adb','shell','input','swipe','1100','850','1100','330','350'],check=True)
@@ -82,7 +82,7 @@ else:
     raise AssertionError('Signed release model check did not finish')
 with (out/'release-model-check.png').open('wb') as screenshot:
     subprocess.run(['adb','exec-out','screencap','-p'],check=True,stdout=screenshot)
-for _ in range(7):
+for _ in range(16):
     if click(lambda a: a.get('text')=='Check saved hand'):
         break
     subprocess.run(['adb','shell','input','swipe','1100','300','1100','800','350'],check=True)
@@ -99,7 +99,7 @@ while time.monotonic()<deadline:
     time.sleep(1)
 else:
     raise AssertionError('Signed release native replay did not return the reference decision')
-for _ in range(7):
+for _ in range(16):
     if click(lambda a: a.get('content-desc')=='Close settings'):
         break
     subprocess.run(['adb','shell','input','swipe','1100','300','1100','800','350'],check=True)

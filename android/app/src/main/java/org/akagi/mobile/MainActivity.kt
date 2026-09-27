@@ -23,6 +23,8 @@ class MainActivity : ComponentActivity() {
                 onSessionReset = analysis::resetSession,
                 onLoadLocalReplay = analysis::checkSavedHand,
                 onRunModelCheck = analysis::checkModels,
+                onImportModel = analysis::importModel,
+                onUseBundledModel = analysis::useBundledModel,
             )
         }
     }

@@ -1,0 +1,86 @@
+name: Android model conversion
+
+on:
+  push:
+    branches: ['android/**']
+    paths: ['.github/workflows/android-model.yml']
+  workflow_dispatch:
+    inputs:
+      players:
+        description: Game mode to replace
+        type: choice
+        options: ['4', '3']
+        default: '4'
+        required: true
+      checkpoint_url:
+        description: Direct HTTPS download URL for your Mortal v4 DQN .pth checkpoint
+        type: string
+        required: true
+      model_name:
+        description: Name shown in the app for this model
+        type: string
+        required: true
+        default: My Mortal model
+      checkpoint_sha256:
+        description: Expected checkpoint SHA-256 (optional)
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  convert:
+    name: Convert and validate one model
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+      - name: Build the native observation validator
+        working-directory: native
+        run: cargo build --locked --release -p akagi-mobile-core --bin mortal-fixtures
+      - name: Install conversion dependencies
+        run: |
+          python -m pip install --disable-pip-version-check torch==2.11.0 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install --disable-pip-version-check numpy==2.4.4 onnx==1.20.1 onnxruntime==1.24.3
+      - name: Convert the selected checkpoint
+        env:
+          CHECKPOINT_URL: ${{ inputs.checkpoint_url || format('https://raw.githubusercontent.com/{0}/{1}/models/mortal.pth', github.repository, github.sha) }}
+          MODEL_PLAYERS: ${{ inputs.players || '4' }}
+          MODEL_NAME: ${{ inputs.model_name || 'Bundled Mortal 4p conversion check' }}
+          CHECKPOINT_SHA256: ${{ inputs.checkpoint_sha256 }}
+        run: >-
+          python scripts/mobile/convert_checkpoint.py
+          --players "$MODEL_PLAYERS"
+          --checkpoint-url-env CHECKPOINT_URL
+          --sha256 "$CHECKPOINT_SHA256"
+          --name "$MODEL_NAME"
+          --native-cli native/target/release/mortal-fixtures
+          --output artifacts/converted-model
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Mortal-${{ inputs.players || '4' }}p-Android-model
+          path: |
+            artifacts/converted-model/*.akagimodel
+            artifacts/converted-model/SHA256SUMS.txt
+            artifacts/converted-model/conversion-report.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Save validation failures
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-conversion-diagnostics
+          path: |
+            artifacts/converted-model/conversion-report.json
+            artifacts/converted-model/validation/fixtures/
+          if-no-files-found: ignore

@@ -38,6 +38,7 @@ android/local.properties
 android/app/src/main/jniLibs/
 android/app/src/main/assets/models/
 android/app/src/main/assets/protocol/
+android/app/src/debug/assets/model-import/
 native/target/
 native/fixtures/generated/
 artifacts/

@@ -7,6 +7,16 @@ data class UiState(
     val modelCheckRunning: Boolean = false,
     val localReplayRunning: Boolean = false,
     val diagnostic: String? = null,
+    val fourPlayerModel: UiModel = UiModel(4),
+    val threePlayerModel: UiModel = UiModel(3),
+)
+
+data class UiModel(
+    val players: Int,
+    val name: String = "Bundled Mortal",
+    val custom: Boolean = false,
+    val busy: Boolean = false,
+    val message: String? = null,
 )
 
 data class UiStatus(

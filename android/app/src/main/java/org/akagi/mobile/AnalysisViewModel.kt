@@ -1,9 +1,12 @@
 package org.akagi.mobile
 
 import android.app.Application
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.Executors
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -13,10 +16,13 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import org.akagi.mobile.engine.EngineAdvice
 import org.akagi.mobile.engine.MortalSession
+import org.akagi.mobile.engine.ModelChoice
+import org.akagi.mobile.engine.ModelRepository
 import org.akagi.mobile.protocol.MahjongSoulProtocol
 import org.akagi.mobile.ui.StatusTone
 import org.akagi.mobile.ui.UiAdvice
 import org.akagi.mobile.ui.UiAlternative
+import org.akagi.mobile.ui.UiModel
 import org.akagi.mobile.ui.UiState
 import org.akagi.mobile.ui.UiStatus
 import org.json.JSONObject
@@ -33,10 +39,129 @@ class AnalysisViewModel(application: Application) : AndroidViewModel(application
         { task -> Thread(task, "Akagi analysis").apply { isDaemon = true } },
     )
     private val protocol by lazy { MahjongSoulProtocol(application) }
-    private val mortal by lazy { MortalSession(application) }
+    private val models = ModelRepository(application)
+    private val mortal by lazy { MortalSession(application, models) }
+    // Model copies and candidate inference must not stall the live protocol queue.
+    private val imports = Executors.newSingleThreadExecutor { task ->
+        Thread(task, "Akagi model import").apply { isDaemon = true }
+    }
+    private val preparedModels = ConcurrentHashMap.newKeySet<ModelRepository.PreparedModel>()
     // A sent operation consumes the UI decision before its server echo arrives.
     // Native state alone cannot establish that this decision is still pending.
     private var decisionPending = false
+
+    init {
+        submit {
+            for (players in listOf(4, 3)) {
+                runCatching { models.choice(players) }.onSuccess { choice -> updateModel(players) { choice.toUi() } }
+                runCatching { models.prune(players) }
+            }
+        }
+    }
+
+    fun importModel(players: Int, uri: Uri) {
+        if (disposed.get() || players !in listOf(4, 3) || !beginModelChange(players, "Checking model…")) return
+        imports.execute {
+            try {
+                val prepared = getApplication<Application>().contentResolver.openInputStream(uri)?.use { input ->
+                    models.prepareImport(players, input)
+                } ?: error("The selected file could not be opened")
+                preparedModels.add(prepared)
+                if (disposed.get()) {
+                    prepared.close()
+                    preparedModels.remove(prepared)
+                    return@execute
+                }
+                // Bypass the capture overflow handler so a rejected import always frees its files.
+                try {
+                    worker.execute {
+                        try {
+                            prepared.use {
+                                if (disposed.get()) return@use
+                                val choice = try { models.apply(prepared) } catch (failure: Throwable) {
+                                    modelChangeFailed(players, failure)
+                                    return@use
+                                }
+                                finishModelChange(choice, "$players-player model updated.")
+                            }
+                        } finally { preparedModels.remove(prepared) }
+                    }
+                } catch (failure: RejectedExecutionException) {
+                    prepared.close()
+                    preparedModels.remove(prepared)
+                    modelChangeFailed(players, failure)
+                }
+            } catch (failure: Throwable) {
+                modelChangeFailed(players, failure)
+            }
+        }
+    }
+
+    fun useBundledModel(players: Int) {
+        if (disposed.get() || players !in listOf(4, 3) || !beginModelChange(players, "Restoring bundled model…")) return
+        submit {
+            val choice = try { models.useBundled(players) } catch (failure: Throwable) {
+                modelChangeFailed(players, failure)
+                return@submit
+            }
+            finishModelChange(choice, "Bundled $players-player model restored.")
+        }
+    }
+
+    private fun finishModelChange(choice: ModelChoice, message: String) {
+        updateModel(choice.players) { choice.toUi(message) }
+        runCatching { refreshChangedModel(choice.players) }.onFailure { failure ->
+            mutable.update { it.copy(advice = null) }
+            updateModel(choice.players) { it.copy(message = "Model saved. ${failure.message?.take(180) ?: "Reload the game to resume advice."}") }
+        }
+        runCatching { models.prune(choice.players) }
+    }
+
+    /** Keep the verified game state; the next inference loads only this mode's selection. */
+    private fun refreshChangedModel(players: Int) {
+        if (!mortal.modelChanged(players)) return
+        mutable.update { it.copy(advice = null) }
+        val capturedEpoch = epoch.get()
+        // Queue behind capture messages already waiting so no old decision is republished.
+        submit {
+            if (capturedEpoch != epoch.get() || !visible.get() || !decisionPending) return@submit
+            try {
+                val advice = mortal.recomputePending()?.toUi()
+                mutable.update { old ->
+                    if (capturedEpoch != epoch.get() || !visible.get()) old else old.copy(advice = advice)
+                }
+            } catch (failure: Throwable) {
+                decisionPending = false
+                mortal.reset()
+                protocol.invalidateEngine("Advice paused; waiting for a complete new hand or game reload")
+                mutable.update { old ->
+                    if (capturedEpoch != epoch.get()) old else old.copy(advice = null, status = UiStatus(
+                        "Advice paused", failure.message?.take(180) ?: "The selected model could not run.", StatusTone.ERROR,
+                    ))
+                }
+            }
+        }
+    }
+
+    private fun beginModelChange(players: Int, message: String): Boolean {
+        val current = if (players == 4) mutable.value.fourPlayerModel else mutable.value.threePlayerModel
+        if (current.busy) return false
+        updateModel(players) { it.copy(busy = true, message = message) }
+        return true
+    }
+
+    private fun modelChangeFailed(players: Int, failure: Throwable) {
+        updateModel(players) { it.copy(busy = false, message = "Model was not changed. ${failure.message?.take(200) ?: "The file could not be loaded."}") }
+    }
+
+    private fun ModelChoice.toUi(message: String? = notice) = UiModel(players, name, custom, message = message)
+
+    private fun updateModel(players: Int, update: (UiModel) -> UiModel) {
+        mutable.update { state ->
+            if (players == 4) state.copy(fourPlayerModel = update(state.fourPlayerModel))
+            else state.copy(threePlayerModel = update(state.threePlayerModel))
+        }
+    }
 
     fun capture(payload: String) {
         if (disposed.get()) return
@@ -163,7 +288,10 @@ class AnalysisViewModel(application: Application) : AndroidViewModel(application
             if (disposed.get()) return
             epoch.incrementAndGet()
             worker.queue.clear()
+            preparedModels.forEach { it.close() }
+            preparedModels.clear()
             mutable.update { it.copy(advice = null, modelCheckRunning = false, localReplayRunning = false,
+                fourPlayerModel = it.fourPlayerModel.copy(busy = false), threePlayerModel = it.threePlayerModel.copy(busy = false),
                 status = UiStatus("Advice paused", "Game messages arrived too quickly. Reload the game to resynchronize.", StatusTone.ERROR)) }
             worker.execute { decisionPending = false; protocol.reset(); mortal.reset() }
         }
@@ -184,7 +312,10 @@ class AnalysisViewModel(application: Application) : AndroidViewModel(application
     override fun onCleared() {
         disposed.set(true)
         epoch.incrementAndGet()
+        imports.shutdownNow()
         worker.queue.clear()
+        preparedModels.forEach { it.close() }
+        preparedModels.clear()
         worker.execute { mortal.close() }
         worker.shutdown()
         super.onCleared()

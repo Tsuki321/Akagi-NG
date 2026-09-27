@@ -4,6 +4,8 @@ The app opens the English Mahjong Soul site in a persistent WebView and displays
 
 Use Yostar email sign-in. Existing Google players should first bind an unused Yostar account from the game's account settings in a browser or app where their Google login works. Google authorization navigation inside the app opens the binding explanation. It does not transfer browser cookies into the game.
 
+Settings have separate **Four-player model** and **Three-player model** controls. Convert a Mortal v4 DQN `.pth` checkpoint with the single-model Actions workflow, then import its `.akagimodel` file under the matching mode. Replacing or restoring one model leaves the other unchanged. See the [model conversion and import guide](../docs/ANDROID_MODELS.md).
+
 `MainActivity` supplies `UiState` to `AkagiApp`. Only the coordinator supplies advice. A null `UiAdvice` immediately removes the previous action. Diagnostics appear inside settings. The browser calls `onSessionReset` at navigation, capture failure, and renderer recovery, and sends capture JSON through `onCapture`.
 
 The manifest keeps the Activity through rotation, resizing, font changes, and theme changes. The shell handles immersive bars, WebView pause/resume, cookies, back navigation, and renderer replacement. Persistent cookies and web storage belong to Android WebView; app data is excluded from backup.

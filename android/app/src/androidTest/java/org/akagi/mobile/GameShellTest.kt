@@ -22,6 +22,7 @@ import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
 import org.akagi.mobile.ui.UiAdvice
 import org.akagi.mobile.ui.UiAlternative
+import org.akagi.mobile.ui.UiModel
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -121,6 +122,40 @@ class GameShellTest {
         compose.onNodeWithText("Sign in with Yostar").assertIsDisplayed()
         compose.onNodeWithText("Got it").performClick()
         compose.onNodeWithText("Sign in with Yostar").assertDoesNotExist()
+    }
+
+    @Test fun modelControlsRestoreEachModeIndependentlyAndExplainCheckpointConversion() {
+        compose.runOnUiThread {
+            compose.activity.fixtureState = compose.activity.fixtureState.copy(
+                fourPlayerModel = UiModel(4, "My four-player model", custom = true),
+                threePlayerModel = UiModel(3, "My three-player model", custom = true),
+            )
+        }
+        compose.onNodeWithTag("advice_chip").performClick()
+        compose.onNodeWithTag("open_settings").performClick()
+        compose.onNodeWithTag("import_4p").performScrollTo().assertIsDisplayed().assertHeightIsAtLeast(48.dp)
+        captureScreenshot(compose.activity, "10_fixture_four_player_model")
+        compose.onNodeWithTag("restore_4p").performScrollTo().performClick()
+        assertEquals(listOf(4), compose.activity.modelRestoreRequests.toList())
+        assertEquals("My three-player model", compose.activity.fixtureState.threePlayerModel.name)
+        compose.onNodeWithTag("import_3p").performScrollTo().assertIsDisplayed().assertHeightIsAtLeast(48.dp)
+        captureScreenshot(compose.activity, "11_fixture_three_player_model")
+        compose.onNodeWithTag("restore_3p").performScrollTo().performClick()
+        assertEquals(listOf(4, 3), compose.activity.modelRestoreRequests.toList())
+        compose.onNodeWithTag("model_help").performScrollTo().performClick()
+        compose.onNodeWithText("Use your own Mortal model").assertIsDisplayed()
+        compose.onNodeWithText("Got it").performClick()
+        compose.onNodeWithText("Use your own Mortal model").assertDoesNotExist()
+        // Opening and cancelling Android's file picker does not change a selection.
+        compose.onNodeWithTag("import_4p").performScrollTo().performClick()
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        assertTrue(device.wait(Until.hasObject(By.pkg("com.google.android.documentsui")), 5_000) ||
+            device.wait(Until.hasObject(By.pkg("com.android.documentsui")), 5_000))
+        device.pressBack()
+        compose.onNodeWithTag("settings_sheet").assertIsDisplayed()
+        assertTrue(compose.activity.modelImportRequests.isEmpty())
+        assertEquals("Bundled Mortal", compose.activity.fixtureState.fourPlayerModel.name)
+        assertEquals("Bundled Mortal", compose.activity.fixtureState.threePlayerModel.name)
     }
 
     @Test fun longPressMovesTheChipButKeepsItAboveTheHand() {

@@ -41,6 +41,14 @@ jobs:
           python -m pip install --disable-pip-version-check numpy==2.4.4 onnx==1.20.1 onnxruntime==1.24.3
       - name: Export and verify actual bundled models
         run: python scripts/mobile/export_models.py --native-cli native/target/release/mortal-fixtures --validate-sanma
+      - name: Verify independent checkpoint conversion and prepare import fixtures
+        run: python scripts/mobile/test_model_conversion.py --native-cli native/target/release/mortal-fixtures
+      - name: Upload model import test fixtures
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-import-fixtures
+          path: android/app/src/debug/assets/model-import/
+          retention-days: 14
       - name: Install Android native toolchain
         run: |
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'ndk;28.2.13676358'
@@ -83,6 +91,10 @@ jobs:
         with:
           name: mobile-engine
           path: android/app/src/main
+      - uses: actions/download-artifact@v4
+        with:
+          name: model-import-fixtures
+          path: android/app/src/debug/assets/model-import
       - uses: actions/setup-java@v4
         with:
           distribution: temurin

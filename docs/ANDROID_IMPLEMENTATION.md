@@ -8,6 +8,8 @@ Use Mahjong Soul's Yostar sign-in. For an existing Google-based account, first b
 
 The entire game update is applied before inference. A draw and its dora announcement, or a discard and its reach payment, form one transaction. This keeps model inputs current and preserves pending ron/chankan opportunities. Replay advances historical state without running inference at each historical decision.
 
+Model selections are independent for four-player and three-player games. `ModelRepository` validates imports on a separate worker and commits only the selected mode after real on-device reference checks. The coordinator retains live native state, invalidates only the changed mode's cached inference session, and recomputes a still-pending decision. Each mode can return to its bundled model. [Mortal checkpoint conversion and import](ANDROID_MODELS.md) uses a separate Actions workflow accepting one `.pth` checkpoint at a time.
+
 Four-player rules were ported from pinned Mortal v4 source. The three-player deployment layout was reconstructed and checked against the actual bundled `libriichi3p` binary, including its historical normalization, ranking and call-history behavior. Source provenance, licenses and reproducible adapter patches are committed. The mobile runtime contains neither a Python interpreter nor desktop native libraries.
 
 **Validation.** Builds and compilation run exclusively in GitHub Actions. The Android workflow performs:

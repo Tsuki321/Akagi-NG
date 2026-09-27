@@ -1,19 +1,9 @@
 package org.akagi.mobile.engine
 
-import ai.onnxruntime.OnnxJavaType
-import ai.onnxruntime.OnnxTensor
-import ai.onnxruntime.OrtEnvironment
-import ai.onnxruntime.OrtSession
-import ai.onnxruntime.TensorInfo
 import android.content.Context
 import android.os.Looper
 import android.os.SystemClock
 import java.io.Closeable
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
-import java.nio.FloatBuffer
-import java.security.MessageDigest
-import kotlin.math.abs
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -22,11 +12,9 @@ import org.json.JSONObject
  * main thread. Only the active model is retained. Lookahead clones native state
  * and shares the existing ONNX session, so it cannot change the real game.
  */
-class MortalSession(context: Context) : Closeable {
+class MortalSession(context: Context, private val models: ModelRepository = ModelRepository(context)) : Closeable {
     private val assets = context.applicationContext.assets
-    private val environment by lazy { OrtEnvironment.getEnvironment() }
-    private var model: OrtSession? = null
-    private var modelPlayers = 0
+    private var model: ModelRuntime? = null
     private var handle = 0L
     private var players = 4
     private var closed = false
@@ -36,69 +24,26 @@ class MortalSession(context: Context) : Closeable {
         check(!closed) { "MortalSession is closed" }
     }
 
-    private fun manifest(playerCount: Int): JSONObject = assets.open("models/mortal${playerCount}p.json").bufferedReader().use {
-        JSONObject(it.readText())
-    }
-
-    private fun loadModel(playerCount: Int): OrtSession {
-        model?.takeIf { modelPlayers == playerCount }?.let { return it }
-        val description = manifest(playerCount)
-        check(description.getInt("version") == 4 && description.getString("score_semantics") == "legal_masked_dueling_q") {
-            "Unsupported model format"
-        }
-        val expectedChannels = if (playerCount == 4) 1012L else 775L
-        val expectedActions = if (playerCount == 4) 46L else 44L
-        val bytes = assets.open("models/" + description.getString("file")).use { it.readBytes() }
-        val digest = MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it.toInt() and 255) }
-        check(digest == description.getString("sha256")) { "The bundled model checksum does not match" }
+    private fun loadModel(playerCount: Int): ModelRuntime {
+        val source = models.source(playerCount)
+        model?.takeIf { it.source.identity == source.identity }?.let { return it }
         model?.close()
         model = null
-        modelPlayers = 0
-        val loaded = OrtSession.SessionOptions().use { options ->
-            options.setIntraOpNumThreads(2)
-            options.setInterOpNumThreads(1)
-            options.setExecutionMode(OrtSession.SessionOptions.ExecutionMode.SEQUENTIAL)
-            options.setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
-            // No optional accelerator: CPU is the validated baseline.
-            environment.createSession(bytes, options)
-        }
-        try {
-            val obs = loaded.inputInfo.getValue("obs").info as TensorInfo
-            val mask = loaded.inputInfo.getValue("mask").info as TensorInfo
-            val output = loaded.outputInfo.getValue("q_values").info as TensorInfo
-            check(obs.type == OnnxJavaType.FLOAT && obs.shape.contentEquals(longArrayOf(1, expectedChannels, 34))) { "Observation dimensions do not match the encoder" }
-            check(mask.type == OnnxJavaType.BOOL && mask.shape.contentEquals(longArrayOf(1, expectedActions))) { "Legal-mask dimensions do not match the encoder" }
-            check(output.type == OnnxJavaType.FLOAT && output.shape.contentEquals(longArrayOf(1, expectedActions))) { "Unexpected score output" }
-            model = loaded
-            modelPlayers = playerCount
-            return loaded
-        } catch (error: Throwable) {
-            loaded.close()
-            throw error
-        }
+        return ModelRuntime.open(models, source).also { model = it }
     }
 
-    private fun infer(observation: FloatArray, bits: Long, playerCount: Int): FloatArray {
-        val channels = if (playerCount == 4) 1012 else 775
-        val actions = if (playerCount == 4) 46 else 44
-        require(observation.size == channels * 34 && observation.all { it.isFinite() }) { "Invalid native observation" }
-        require(bits != 0L && bits ushr actions == 0L) { "Invalid native action mask" }
-        val mask = BooleanArray(actions) { bits and (1L shl it) != 0L }
-        val activeModel = loadModel(playerCount)
-        OnnxTensor.createTensor(environment, FloatBuffer.wrap(observation), longArrayOf(1, channels.toLong(), 34)).use { obsTensor ->
-            OnnxTensor.createTensor(environment, arrayOf(mask)).use { maskTensor ->
-                activeModel.run(mapOf("obs" to obsTensor, "mask" to maskTensor)).use { result ->
-                    @Suppress("UNCHECKED_CAST")
-                    val batch = result.get("q_values").orElseThrow().value as Array<FloatArray>
-                    val scores = batch.single()
-                    check(scores.size == actions)
-                    check(scores.indices.all { i -> if (mask[i]) scores[i].isFinite() else scores[i] == Float.NEGATIVE_INFINITY }) {
-                        "Local model returned invalid legal scores"
-                    }
-                    return scores
-                }
-            }
+    private fun infer(observation: FloatArray, bits: Long, playerCount: Int): FloatArray =
+        loadModel(playerCount).infer(observation, bits)
+
+    /** A change in the other mode must not invalidate this mode's live state or model. */
+    @Synchronized
+    fun modelChanged(playerCount: Int): Boolean {
+        backgroundOnly()
+        if (model?.source?.players == playerCount) {
+            model?.close()
+            model = null
         }
+        return handle != 0L && players == playerCount
     }
 
     private fun inferState(nativeHandle: Long, snapshot: JSONObject): JSONObject {
@@ -156,9 +101,7 @@ class MortalSession(context: Context) : Closeable {
         players = event.optInt("players", if (event.optBoolean("is_3p", false)) 3 else 4)
         require(players == 3 || players == 4) { "Unsupported player count" }
         val seat = event.getInt("id")
-        check(manifest(players).getBoolean("native_compatible")) {
-            "The ${players}-player rules have not passed compatibility validation in this build"
-        }
+        models.checkNativeCompatibility(players)
         handle = NativeMortal.create(seat, players)
     }
 
@@ -210,26 +153,10 @@ class MortalSession(context: Context) : Closeable {
         backgroundOnly()
         val started = SystemClock.elapsedRealtime()
         return try {
-            val reference = assets.open("models/reference.json").bufferedReader().use { JSONObject(it.readText()) }
             var count = 0
-            for (case in reference.getJSONArray("cases").objects()) {
-                val playerCount = case.getInt("players")
-                val raw = assets.open("models/" + case.getString("observation")).use { it.readBytes() }
-                require(raw.size % 4 == 0)
-                val floats = ByteBuffer.wrap(raw).order(ByteOrder.LITTLE_ENDIAN).asFloatBuffer()
-                val observation = FloatArray(floats.remaining()).also { floats.get(it) }
-                val bits = case.getLong("mask_bits")
-                val scores = infer(observation, bits, playerCount)
-                val expected = case.getJSONArray("q_values")
-                var best = -1
-                for (i in scores.indices) {
-                    if (bits and (1L shl i) == 0L) continue
-                    val value = expected.getDouble(i).toFloat()
-                    check(abs(scores[i] - value) <= 0.0003f + 0.0002f * abs(value)) { "Model parity failed for ${case.getString("name")}, action $i" }
-                    if (best < 0 || scores[i] > scores[best]) best = i
-                }
-                check(best == case.getInt("argmax")) { "Model decision differs from desktop reference" }
-                count += 1
+            for (playerCount in listOf(4, 3)) {
+                val runtime = loadModel(playerCount)
+                count += models.validateReferences(runtime.source, runtime)
             }
             check(count >= 2) { "Missing real-model reference cases" }
             ModelCheckResult(true, "$count desktop reference observations passed on local CPU inference.", SystemClock.elapsedRealtime() - started)
@@ -278,7 +205,6 @@ class MortalSession(context: Context) : Closeable {
         resetState()
         model?.close()
         model = null
-        modelPlayers = 0
         closed = true
         // OrtEnvironment is process-wide and may be used by another session.
     }

@@ -20,6 +20,8 @@ class BrowserFixtureActivity : ComponentActivity() {
     val resets = AtomicInteger()
     val replayRequests = AtomicInteger()
     val modelCheckRequests = AtomicInteger()
+    val modelRestoreRequests = CopyOnWriteArrayList<Int>()
+    val modelImportRequests = CopyOnWriteArrayList<Int>()
     var fixtureState by mutableStateOf(UiState(status = UiStatus("Waiting for game", "The local UI fixture is open.", StatusTone.CONNECTING)))
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -35,6 +37,12 @@ class BrowserFixtureActivity : ComponentActivity() {
                 onRunModelCheck = {
                     modelCheckRequests.incrementAndGet()
                     fixtureState = fixtureState.copy(diagnostic = "Model check callback received")
+                },
+                onImportModel = { players, _ -> modelImportRequests.add(players) },
+                onUseBundledModel = { players ->
+                    modelRestoreRequests.add(players)
+                    fixtureState = if (players == 4) fixtureState.copy(fourPlayerModel = org.akagi.mobile.ui.UiModel(4))
+                    else fixtureState.copy(threePlayerModel = org.akagi.mobile.ui.UiModel(3))
                 },
             )
         }
