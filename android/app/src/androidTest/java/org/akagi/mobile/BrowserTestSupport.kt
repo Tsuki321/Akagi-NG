@@ -134,6 +134,12 @@ internal fun tapBrowserElement(activity: Activity, elementId: String) {
     check(UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).click(x.toInt(), y.toInt()))
 }
 
+/** WindowManager/SurfaceFlinger can still present the rotation snapshot after layout is ready. */
+internal fun settleDisplay() {
+    UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).waitForIdle(1_000)
+    Thread.sleep(800)
+}
+
 /** Pulled by CI from the target APK's externalFilesDir/screenshots. */
 internal fun captureScreenshot(activity: Activity, name: String) {
     // Android composition and the WebView renderer draw after Compose semantics
@@ -151,6 +157,7 @@ internal fun captureScreenshot(activity: Activity, name: String) {
         )
     }
     check(drawn.await(10, TimeUnit.SECONDS)) { "The browser did not finish drawing screenshot $name" }
+    settleDisplay()
     val directory = File(checkNotNull(activity.getExternalFilesDir(null)), "screenshots")
     check(directory.isDirectory || directory.mkdirs())
     val destination = File(directory, "$name.png")

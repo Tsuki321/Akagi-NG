@@ -17,7 +17,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
+import androidx.test.uiautomator.Until
 import org.akagi.mobile.ui.UiAdvice
 import org.akagi.mobile.ui.UiAlternative
 import org.json.JSONObject
@@ -77,7 +79,13 @@ class GameShellTest {
         compose.onNodeWithTag("settings_sheet").assertIsDisplayed()
         awaitDialogWindowFocus(compose.activity)
         captureScreenshot(compose.activity, "03_fixture_settings_landscape")
-        compose.onNodeWithTag("close_settings").assertHeightIsAtLeast(48.dp).performClick()
+        compose.onNodeWithTag("close_settings").assertHeightIsAtLeast(48.dp)
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        val physicalClose = checkNotNull(device.wait(Until.findObject(By.desc("Close settings")), 5_000)) {
+            "The displayed settings window has no accessible close control"
+        }
+        physicalClose.click()
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("settings_sheet").fetchSemanticsNodes().isEmpty() }
         compose.onNodeWithTag("settings_sheet").assertDoesNotExist()
         compose.onNodeWithTag("advice_strip").assertIsDisplayed()
         awaitWindowFocus(compose.activity)
@@ -141,6 +149,9 @@ class GameShellTest {
         awaitBrowser(compose.activity, "innerHeight > innerWidth")
         awaitBrowserViewport(compose.activity)
         assertEquals(document, evaluate(compose.activity, "window.fixtureDocumentToken"))
+        settleDisplay()
+        tapBrowserElement(compose.activity, "tile_12")
+        awaitBrowser(compose.activity, "document.getElementById('tile_12').classList.contains('selected') && window.fixtureClicks === 1")
         captureScreenshot(compose.activity, "04_fixture_compact_portrait")
         compose.runOnUiThread { compose.activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE }
         compose.waitUntil(10_000) { compose.activity.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE }

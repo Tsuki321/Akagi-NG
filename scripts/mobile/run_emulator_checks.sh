@@ -45,6 +45,10 @@ if grep -Eq 'CRASH|ANR|Monkey aborted' "$out/interaction-stress.txt"; then exit 
 adb shell am force-stop org.akagi.mobile.debug
 adb shell am start -n org.akagi.mobile.debug/org.akagi.mobile.MainActivity
 sleep 35
+adb exec-out screencap -p > "$out/public-game-35s.png"
+sleep 45
+adb exec-out screencap -p > "$out/public-game-80s.png"
+sleep 40
 adb exec-out screencap -p > "$out/public-game.png"
 adb shell dumpsys meminfo org.akagi.mobile.debug > "$out/memory.txt"
 adb shell dumpsys gfxinfo org.akagi.mobile.debug > "$out/rendering.txt"
