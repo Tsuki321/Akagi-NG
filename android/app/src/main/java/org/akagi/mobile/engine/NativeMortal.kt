@@ -7,6 +7,7 @@ internal object NativeMortal {
     @JvmStatic external fun create(player: Int, players: Int): Long
     @JvmStatic external fun destroy(handle: Long)
     @JvmStatic external fun accept(handle: Long, event: String): String
+    @JvmStatic external fun acceptBatch(handle: Long, events: String): String
     @JvmStatic external fun snapshot(handle: Long): String
     @JvmStatic external fun observation(handle: Long, kan: Boolean): FloatArray
     @JvmStatic external fun resolve(handle: Long, scores: FloatArray, kanScores: FloatArray): String

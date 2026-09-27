@@ -117,16 +117,7 @@ class MortalSession(context: Context) : Closeable {
         val started = SystemClock.elapsedRealtime()
         try {
             val event = JSONObject(json)
-            if (event.getString("type") == "start_game") {
-                resetState()
-                players = event.optInt("players", if (event.optBoolean("is_3p", false)) 3 else 4)
-                require(players == 3 || players == 4) { "Unsupported player count" }
-                val seat = event.getInt("id")
-                check(manifest(players).getBoolean("native_compatible")) {
-                    "The ${players}-player rules have not passed compatibility validation in this build"
-                }
-                handle = NativeMortal.create(seat, players)
-            }
+            if (event.getString("type") == "start_game") startGame(event)
             check(handle != 0L) { "Waiting for a verified game start or reconnection replay" }
             val snapshot = JSONObject(NativeMortal.accept(handle, json))
             return evaluatePending(snapshot, started)
@@ -134,6 +125,41 @@ class MortalSession(context: Context) : Closeable {
             resetState()
             throw error
         }
+    }
+
+    /** Apply one source action (or replay) completely before inferring once. */
+    @Synchronized
+    fun acceptBatch(events: List<String>): EngineAdvice? {
+        backgroundOnly()
+        if (events.isEmpty()) return null
+        val started = SystemClock.elapsedRealtime()
+        try {
+            require(events.size <= 4096 && events.sumOf { it.length.toLong() } <= 8L * 1024 * 1024) {
+                "The game event batch is too large"
+            }
+            val parsed = events.map(::JSONObject)
+            require(parsed.drop(1).none { it.getString("type") == "start_game" }) {
+                "A new game must begin at the start of its event batch"
+            }
+            if (parsed.first().getString("type") == "start_game") startGame(parsed.first())
+            check(handle != 0L) { "Waiting for a verified game start or reconnection replay" }
+            val snapshot = JSONObject(NativeMortal.acceptBatch(handle, JSONArray(parsed).toString()))
+            return evaluatePending(snapshot, started)
+        } catch (error: Throwable) {
+            resetState()
+            throw error
+        }
+    }
+
+    private fun startGame(event: JSONObject) {
+        resetState()
+        players = event.optInt("players", if (event.optBoolean("is_3p", false)) 3 else 4)
+        require(players == 3 || players == 4) { "Unsupported player count" }
+        val seat = event.getInt("id")
+        check(manifest(players).getBoolean("native_compatible")) {
+            "The ${players}-player rules have not passed compatibility validation in this build"
+        }
+        handle = NativeMortal.create(seat, players)
     }
 
     /** Re-run inference only if the current verified state still has a decision. */

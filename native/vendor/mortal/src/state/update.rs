@@ -25,6 +25,20 @@ impl PlayerState {
         self.update_with_keep_cans(event, false)
     }
 
+    /// Apply a supplement to the same decision without advancing the reaction
+    /// window. Only the mobile batch adapter calls this, after an actionable
+    /// event in that batch. In particular, do not consume pending furiten or
+    /// chankan state as `update_with_keep_cans` would do.
+    pub fn apply_decision_announcement(&mut self, event: &Event) -> Result<ActionCandidate> {
+        ensure!(self.last_cans.can_act(), "announcement has no pending decision");
+        match *event {
+            Event::Dora { dora_marker } => self.add_dora_indicator(dora_marker)?,
+            Event::ReachAccepted { actor } => self.reach_accepted(actor),
+            _ => anyhow::bail!("only dora and reach_accepted can supplement a decision"),
+        }
+        Ok(self.last_cans)
+    }
+
     /// If `keep_cans_on_announce` is true, then ReachAccepted, Dora and Hora
     /// events will keep `self.last_cans`, `self.ankan_candidates` and
     /// `self.kakan_candidates` unchanged from the last update. Currently

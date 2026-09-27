@@ -34,6 +34,9 @@ class AnalysisViewModel(application: Application) : AndroidViewModel(application
     )
     private val protocol by lazy { MahjongSoulProtocol(application) }
     private val mortal by lazy { MortalSession(application) }
+    // A sent operation consumes the UI decision before its server echo arrives.
+    // Native state alone cannot establish that this decision is still pending.
+    private var decisionPending = false
 
     fun capture(payload: String) {
         if (disposed.get()) return
@@ -47,15 +50,13 @@ class AnalysisViewModel(application: Application) : AndroidViewModel(application
             try {
                 val update = protocol.accept(payload)
                 if (update.sessionReset) mortal.reset()
-                if (update.clearAdvice || update.sessionReset) mutable.update {
-                    if (capturedEpoch != epoch.get()) it else it.copy(advice = null)
+                if (update.clearAdvice || update.sessionReset) {
+                    decisionPending = false
+                    mutable.update { if (capturedEpoch != epoch.get()) it else it.copy(advice = null) }
                 }
-                var newest: EngineAdvice? = null
-                for (event in update.events) {
-                    if (capturedEpoch != epoch.get()) return@submit
-                    val input = if (visible.get()) event else JSONObject(event).put("can_act", false).toString()
-                    mortal.acceptMjai(input)?.let { newest = it }
-                }
+                val events = if (visible.get()) update.events else update.events.map { JSONObject(it).put("can_act", false).toString() }
+                val newest = mortal.acceptBatch(events)
+                if (newest != null) decisionPending = true
                 if (capturedEpoch != epoch.get()) return@submit
                 val advice = newest?.takeIf { visible.get() }?.toUi()
                 mutable.update { old ->
@@ -77,6 +78,7 @@ class AnalysisViewModel(application: Application) : AndroidViewModel(application
                     )
                 }
             } catch (failure: Throwable) {
+                decisionPending = false
                 mortal.reset()
                 protocol.invalidateEngine("Advice paused; waiting for a complete new hand or game reload")
                 if (capturedEpoch == epoch.get()) {
@@ -99,7 +101,7 @@ class AnalysisViewModel(application: Application) : AndroidViewModel(application
             detail = reason ?: "Sign in with your Yostar account to begin.",
             tone = if (reason == null) StatusTone.CONNECTING else StatusTone.ERROR,
         )) }
-        submit { protocol.reset(); mortal.reset() }
+        submit { decisionPending = false; protocol.reset(); mortal.reset() }
     }
 
     fun setVisible(value: Boolean) {
@@ -108,7 +110,7 @@ class AnalysisViewModel(application: Application) : AndroidViewModel(application
         if (value && !wasVisible) {
             val capturedEpoch = epoch.get()
             submit {
-                if (capturedEpoch != epoch.get() || !visible.get()) return@submit
+                if (capturedEpoch != epoch.get() || !visible.get() || !decisionPending) return@submit
                 try {
                     val advice = mortal.recomputePending()?.toUi()
                     mutable.update { old ->
@@ -163,13 +165,14 @@ class AnalysisViewModel(application: Application) : AndroidViewModel(application
             worker.queue.clear()
             mutable.update { it.copy(advice = null, modelCheckRunning = false, localReplayRunning = false,
                 status = UiStatus("Advice paused", "Game messages arrived too quickly. Reload the game to resynchronize.", StatusTone.ERROR)) }
-            worker.execute { protocol.reset(); mortal.reset() }
+            worker.execute { decisionPending = false; protocol.reset(); mortal.reset() }
         }
     }
 
     private fun EngineAdvice.toUi(): UiAdvice {
-        val reach = reachDiscard?.tile?.let { "Then discard $it" }.orEmpty()
-        val detail = listOf(reach, if (furiten) "Furiten" else "").filter(String::isNotEmpty).joinToString(" · ")
+        val reach = if (recommended.type == "reach") reachDiscard?.tile?.let { "Then discard $it" }.orEmpty() else ""
+        val consumed = if (recommended.consumed.isNotEmpty()) recommended.displayDetail() else ""
+        val detail = listOf(reach, consumed, if (furiten) "Furiten" else "").filter(String::isNotEmpty).joinToString(" · ")
         return UiAdvice(
             action = recommended.displayLabel(), tile = recommended.tile, detail = detail,
             alternatives = alternatives.filter { it.index != recommended.index }.take(2).map {

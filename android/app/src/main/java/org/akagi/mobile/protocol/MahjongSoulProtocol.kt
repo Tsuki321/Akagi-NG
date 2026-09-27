@@ -59,6 +59,8 @@ class MahjongSoulProtocol(schemaJson: String) {
     /** Preserve the connection/identity so a complete new round can recover. */
     fun invalidateEngine(reason: String) {
         invalidate(reason)
+        history.clear()
+        lastStep = null
     }
 
     fun accept(rawCaptureJson: String): ProtocolUpdate {

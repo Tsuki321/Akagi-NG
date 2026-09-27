@@ -76,6 +76,9 @@ impl Session {
     pub fn accept(&mut self, line: &str) -> Result<Snapshot> {
         match self { Self::Yonma(s) => s.accept(line), Self::Sanma(s) => s.accept(line) }
     }
+    pub fn accept_batch(&mut self, lines: &[String]) -> Result<Snapshot> {
+        match self { Self::Yonma(s) => s.accept_batch(lines), Self::Sanma(s) => s.accept_batch(lines) }
+    }
     pub fn snapshot(&self) -> Snapshot {
         match self { Self::Yonma(s) => s.snapshot(), Self::Sanma(s) => s.snapshot() }
     }
@@ -179,5 +182,115 @@ mod tests {
         assert!(!fork.snapshot().can_riichi);
         assert_eq!(before.obs, live.encoding(false).unwrap().obs);
         assert_eq!(before.mask, live.encoding(false).unwrap().mask);
+    }
+
+    fn smoke_events(players: u8) -> Vec<String> {
+        let trace = if players == 4 { TRACE } else { include_str!("../../fixtures/smoke_3p.jsonl") };
+        trace.lines().map(str::to_owned).collect()
+    }
+
+    fn assert_same_encoding(left: &Session, right: &Session) {
+        assert_eq!(left.encoding(false).unwrap().mask, right.encoding(false).unwrap().mask);
+        assert_eq!(left.encoding(false).unwrap().obs, right.encoding(false).unwrap().obs);
+    }
+
+    #[test]
+    fn batch_includes_new_dora_before_encoding_the_pending_draw() {
+        for players in [4, 3] {
+            let events = smoke_events(players);
+            let mut batch = Session::new(0, players).unwrap();
+            let mut reference = Session::new(0, players).unwrap();
+            for event in &events[..2] {
+                batch.accept(event).unwrap();
+                reference.accept(event).unwrap();
+            }
+            let dora = r#"{"type":"dora","dora_marker":"4p","can_act":false}"#.to_owned();
+            batch.accept_batch(&[events[2].clone(), dora.clone()]).unwrap();
+            reference.accept(&dora).unwrap();
+            reference.accept(&events[2]).unwrap();
+            assert_same_encoding(&batch, &reference);
+
+            // An announcement in a later source action cannot resurrect a
+            // candidate from the previous batch.
+            let snapshot = batch.accept_batch(&[r#"{"type":"dora","dora_marker":"1s"}"#.to_owned()]).unwrap();
+            assert!(!snapshot.can_act);
+        }
+    }
+
+    #[test]
+    fn batch_preserves_ron_window_while_applying_reach_payment() {
+        for players in [4, 3] {
+            let mut events: Vec<serde_json::Value> = smoke_events(players).iter().map(|s| serde_json::from_str(s).unwrap()).collect();
+            events[1]["oya"] = serde_json::json!(1);
+            events[1]["tehais"][0] = serde_json::json!(["E", "E", "E", "1p", "2p", "3p", "4p", "5p", "6p", "7s", "8s", "9s", "C"]);
+            let mut session = Session::new(0, players).unwrap();
+            for event in &events[..2] { session.accept(&event.to_string()).unwrap(); }
+            session.accept(r#"{"type":"tsumo","actor":1,"pai":"?","can_act":false}"#).unwrap();
+            session.accept(r#"{"type":"reach","actor":1,"can_act":false}"#).unwrap();
+            let snapshot = session.accept_batch(&[
+                r#"{"type":"dahai","actor":1,"pai":"C","tsumogiri":true,"can_act":true}"#.to_owned(),
+                r#"{"type":"reach_accepted","actor":1,"can_act":false}"#.to_owned(),
+            ]).unwrap();
+            let encoding = session.encoding(false).unwrap();
+            let win = if players == 4 { 43 } else { 41 };
+            assert!(encoding.mask[win]);
+            assert!(!snapshot.at_furiten);
+            let (score, cap, deposits) = if players == 4 { (24000.0, 100000.0, 24) } else { (34000.0, 105000.0, 20) };
+            assert_eq!(encoding.obs[9 * 34], score / cap);
+            assert_eq!(encoding.obs[deposits * 34], 0.1);
+            // Passing on the actual next event still applies same-cycle furiten.
+            let next = session.accept(r#"{"type":"tsumo","actor":1,"pai":"?","can_act":false}"#).unwrap();
+            assert!(next.at_furiten);
+        }
+    }
+
+    #[test]
+    fn batch_keeps_chankan_context_through_a_dora_announcement() {
+        for players in [4, 3] {
+            let mut events: Vec<serde_json::Value> = smoke_events(players).iter().map(|s| serde_json::from_str(s).unwrap()).collect();
+            events[1]["oya"] = serde_json::json!(2);
+            events[1]["dora_marker"] = serde_json::json!("2p");
+            events[1]["tehais"][0] = serde_json::json!(["E", "E", "E", "1p", "2p", "3p", "4p", "5p", "6p", "7s", "N", "N", "F"]);
+            let mut prefix: Vec<String> = events[..2].iter().map(|e| e.to_string()).collect();
+            prefix.extend([
+                r#"{"type":"tsumo","actor":2,"pai":"?","can_act":false}"#,
+                r#"{"type":"dahai","actor":2,"pai":"9s","tsumogiri":true,"can_act":false}"#,
+                r#"{"type":"pon","actor":1,"target":2,"pai":"9s","consumed":["9s","9s"],"can_act":false}"#,
+                r#"{"type":"dahai","actor":1,"pai":"P","tsumogiri":false,"can_act":false}"#,
+                r#"{"type":"tsumo","actor":0,"pai":"8s","can_act":false}"#,
+                r#"{"type":"dahai","actor":0,"pai":"F","tsumogiri":false,"can_act":false}"#,
+                r#"{"type":"tsumo","actor":1,"pai":"?","can_act":false}"#,
+            ].map(str::to_owned));
+            let mut batch = Session::new(0, players).unwrap();
+            batch.accept_batch(&prefix).unwrap();
+            let mut reference = batch.clone();
+            let kakan = r#"{"type":"kakan","actor":1,"pai":"9s","consumed":["9s","9s","9s"],"can_act":true}"#.to_owned();
+            let dora = r#"{"type":"dora","dora_marker":"3p","can_act":false}"#.to_owned();
+            let snapshot = batch.accept_batch(&[kakan.clone(), dora.clone()]).unwrap();
+            reference.accept(&dora).unwrap();
+            reference.accept(&kakan).unwrap();
+            assert!(snapshot.can_act && !snapshot.at_furiten);
+            assert_same_encoding(&batch, &reference);
+        }
+    }
+
+    #[test]
+    fn batch_failure_is_atomic_and_suppressed_replay_stays_suppressed() {
+        let mut session = ready();
+        let before = session.clone();
+        let bad = vec![
+            r#"{"type":"dora","dora_marker":"4p"}"#.to_owned(),
+            r#"{"type":"dahai","actor":0,"pai":"9p","tsumogiri":false}"#.to_owned(),
+        ];
+        assert!(session.accept_batch(&bad).is_err());
+        assert_same_encoding(&session, &before);
+
+        let mut replay = Session::new(0, 4).unwrap();
+        let mut events = smoke_events(4);
+        let mut draw: serde_json::Value = serde_json::from_str(&events[2]).unwrap();
+        draw["can_act"] = serde_json::json!(false);
+        events[2] = draw.to_string();
+        events.push(r#"{"type":"dora","dora_marker":"4p","can_act":true}"#.to_owned());
+        assert!(!replay.accept_batch(&events).unwrap().can_act);
     }
 }

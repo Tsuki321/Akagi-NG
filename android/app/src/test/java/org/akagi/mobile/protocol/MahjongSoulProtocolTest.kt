@@ -233,6 +233,31 @@ class MahjongSoulProtocolTest {
     }
 
     @Test
+    fun engineRejectedHistoryCannotBeReusedByADeltaReplay() {
+        val protocol = MahjongSoulProtocol(schemaJson)
+        val frames = captures(case("reconnect_history"))
+        frames.forEach { protocol.accept(it.toString()) }
+        protocol.invalidateEngine("Native engine rejected this history")
+        val sequence = frames.last().getLong("sequence")
+        val request = frames.last { it.optString("fixtureMethod") == ".lq.FastTest.syncGame" &&
+            it.optString("direction") == "outbound" }
+        protocol.accept(copy(request).put("sequence", sequence + 1).toString())
+        val response = transformResponse(copy(frames.last()).put("sequence", sequence + 2), "ResSyncGame") { value ->
+            val restoreField = value.descriptorForType.findFieldByName("game_restore")
+            val restore = value.getField(restoreField) as DynamicMessage
+            val actionsField = restore.descriptorForType.findFieldByName("actions")
+            val last = restore.getRepeatedField(actionsField, restore.getRepeatedFieldCount(actionsField) - 1)
+            value.toBuilder().setField(restoreField,
+                restore.toBuilder().clearField(actionsField).addRepeatedField(actionsField, last).build()).build()
+        }
+        val result = protocol.accept(response.toString())
+        assertFalse(result.synchronized)
+        assertTrue(result.sessionReset)
+        assertTrue(result.events.isEmpty())
+        assertNotNull(result.seat)
+    }
+
+    @Test
     fun malformedGameFrameImmediatelyClearsAdvice() {
         val protocol = MahjongSoulProtocol(schemaJson)
         val frames = captures(case("four_player_red_reach"))

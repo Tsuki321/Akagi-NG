@@ -58,6 +58,46 @@ impl Session {
     /// Updates a cloned state before committing, so a bad event cannot partially
     /// change the active game. Protocol loss still requires caller resynchronization.
     pub fn accept(&mut self, line: &str) -> Result<Snapshot> {
+        let data = Self::parse_event(line)?;
+        self.normal = None;
+        self.kan = None;
+        let mut next = self.clone();
+        let may_act = next.advance(&data)?;
+        next.encode_pending(may_act)?;
+        *self = next;
+        Ok(self.snapshot())
+    }
+
+    /// One protocol action, including supplements, or one ordered replay. The
+    /// candidate is retained across announcements only inside this batch; it
+    /// is never borrowed from an older action. Intermediate replay states are
+    /// not encoded. Failure leaves the original session entirely unchanged.
+    pub fn accept_batch(&mut self, lines: &[String]) -> Result<Snapshot> {
+        ensure!(!lines.is_empty() && lines.len() <= 4096, "invalid MJAI batch size");
+        let mut bytes = 0_usize;
+        let mut events = Vec::with_capacity(lines.len());
+        for line in lines {
+            bytes = bytes.checked_add(line.len()).context("MJAI batch size overflow")?;
+            ensure!(bytes <= 8 * 1024 * 1024, "MJAI batch too large");
+            events.push(Self::parse_event(line)?);
+        }
+        let mut next = self.clone();
+        next.normal = None;
+        next.kan = None;
+        let mut pending = false;
+        for data in events {
+            if pending && matches!(data.event, Event::Dora { .. } | Event::ReachAccepted { .. }) {
+                next.state.apply_decision_announcement(&data.event)?;
+            } else {
+                pending = next.advance(&data)?;
+            }
+        }
+        next.encode_pending(pending)?;
+        *self = next;
+        Ok(self.snapshot())
+    }
+
+    fn parse_event(line: &str) -> Result<EventWithCanAct> {
         ensure!(line.len() <= 131_072, "MJAI event too large");
         let mut wire: serde_json::Value = serde_json::from_str(line).context("invalid MJAI event")?;
         if PLAYERS == 3 {
@@ -68,9 +108,10 @@ impl Session {
                 }
             }
         }
-        let data: EventWithCanAct = serde_json::from_value(wire).context("invalid MJAI event")?;
-        self.normal = None;
-        self.kan = None;
+        serde_json::from_value(wire).context("invalid MJAI event")
+    }
+
+    fn advance(&mut self, data: &EventWithCanAct) -> Result<bool> {
         match &data.event {
             Event::StartGame { .. } => {
                 self.state = PlayerState::new(self.state.player_id());
@@ -86,22 +127,23 @@ impl Session {
             Event::None => {}
             _ => ensure!(self.in_game && self.in_round, "game event arrived outside an active round"),
         }
-        let mut next = self.state.clone();
-        let cans = next.update(&data.event)?;
+        let cans = self.state.update(&data.event)?;
         let may_act = data.can_act != Some(false) && cans.can_act();
-        // Normal and kan encodings use the same state, as in MortalBatchAgent.
-        let normal = may_act.then(|| encode(&next, false)).transpose()?;
-        let kan = (may_act && (cans.can_ankan || cans.can_kakan)).then(|| encode(&next, true)).transpose()?;
-        self.state = next;
-        self.normal = normal;
-        self.kan = kan;
         match data.event {
             Event::StartKyoku { .. } => self.in_round = true,
             Event::EndKyoku => self.in_round = false,
             Event::EndGame => { self.in_game = false; self.in_round = false; }
             _ => {}
         }
-        Ok(self.snapshot())
+        Ok(may_act)
+    }
+
+    fn encode_pending(&mut self, may_act: bool) -> Result<()> {
+        let cans = self.state.last_cans();
+        self.normal = may_act.then(|| encode(&self.state, false)).transpose()?;
+        self.kan = (may_act && (cans.can_ankan || cans.can_kakan))
+            .then(|| encode(&self.state, true)).transpose()?;
+        Ok(())
     }
 
     pub fn snapshot(&self) -> Snapshot {

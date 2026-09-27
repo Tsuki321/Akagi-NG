@@ -2,4 +2,6 @@ This is a source subset of [shinkuan/Mortal_v4](https://github.com/shinkuan/Mort
 
 The mobile port removes PyO3 attributes, imports, NumPy conversion methods, and Python module registration. Training, arena, Python bot, and dataset modules are excluded. It retains the original rules, v4 observation encoding, lookup tables, state tests, and score algorithms. `mobile_action.rs` extracts the action match from `agent/mortal.rs`, passes the selected kan explicitly, bounds-checks the action index, and validates the resulting event. It does not change tile ordering or consumed red-five behavior.
 
+`PlayerState.apply_decision_announcement` is a mobile-only adapter for dora and reach-payment supplements inside one protocol action. It updates their data without consuming a pending ron/chankan reaction or changing legal candidates. The normal upstream `update` path remains unchanged. The committed `scripts/mobile/yonma_mobile.patch` reproduces this addition.
+
 Reproduce the subset with `python scripts/mobile/vendor_mortal.py PATH_TO_PINNED_CHECKOUT`. Native JNI ownership, lifecycle validation, and model execution are outside this directory. Compile and validate through the Android GitHub Actions workflow.

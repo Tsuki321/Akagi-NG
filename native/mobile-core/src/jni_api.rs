@@ -74,6 +74,18 @@ pub extern "system" fn Java_org_akagi_mobile_engine_NativeMortal_accept(mut env:
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_org_akagi_mobile_engine_NativeMortal_acceptBatch(mut env: JNIEnv, _: JClass, id: jlong, json: JString) -> jstring {
+    boundary(&mut env, |env| {
+        let batch: String = env.get_string(&json)?.into();
+        ensure!(batch.len() <= 8 * 1024 * 1024, "MJAI batch too large");
+        let events: Vec<serde_json::Value> = serde_json::from_str(&batch).context("invalid MJAI batch")?;
+        let lines: Vec<String> = events.into_iter().map(|event| event.to_string()).collect();
+        let encoded = with_session(id, |s| Ok(serde_json::to_string(&s.accept_batch(&lines)?)?))?;
+        Ok(env.new_string(encoded)?.into_raw())
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_org_akagi_mobile_engine_NativeMortal_observation(mut env: JNIEnv, _: JClass, id: jlong, kan: jboolean) -> jfloatArray {
     boundary(&mut env, |env| {
         let values = with_session(id, |s| Ok(s.encoding(kan != 0)?.obs.clone()))?;

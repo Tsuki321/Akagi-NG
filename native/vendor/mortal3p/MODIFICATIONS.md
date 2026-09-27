@@ -8,6 +8,8 @@ North bonuses are tracked separately for actual winning-hand scores, while the h
 
 The rank feature likewise rotates four score slots (including a zero fourth slot), then ranks the first three. This historical behavior is preserved for model compatibility and is checked using all three local seat positions.
 
+As in the four-player subset, `apply_decision_announcement` applies only dora and reach-payment supplements from the same protocol action without consuming its pending ron/chankan reaction. Normal single-event updates retain the historical behavior; mobile batches encode after all supplements have been applied.
+
 PyO3/NumPy imports, attributes and wrappers are removed as for the four-player subset. The original state tests mix native v5 behavior and unavailable manzu tiles, so they are retained in source but are not used as deployment acceptance tests. Generic algorithm tests, ABI tests, measured-channel tests, and full observation, mask and action parity against the historical binary run in CI. Android enables this model only when that comparison passes. Declared dimensions alone never approve compatibility.
 
 Reproduce this subset using `python scripts/mobile/vendor_mortal.py --sanma PATH_TO_PINNED_CHECKOUT/Mortal`. The script removes Python glue and applies the committed `scripts/mobile/sanma_legacy.patch`; it does not compile anything.
