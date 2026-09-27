@@ -65,6 +65,23 @@ else:
 with (out/'release-model-check.png').open('wb') as screenshot:
     subprocess.run(['adb','exec-out','screencap','-p'],check=True,stdout=screenshot)
 for _ in range(7):
+    if click(lambda a: a.get('text')=='Check saved hand'):
+        break
+    subprocess.run(['adb','shell','input','swipe','1100','300','1100','800','350'],check=True)
+else:
+    raise AssertionError('Cannot reach Check saved hand')
+deadline=time.monotonic()+60
+while time.monotonic()<deadline:
+    text=' '.join(n.attrib.get('text','') for n in nodes())
+    if 'Saved hand: Discard 7s' in text:
+        (out/'native-replay-check.txt').write_text(text)
+        break
+    assert 'Saved-hand check failed' not in text, text
+    subprocess.run(['adb','shell','input','swipe','1100','850','1100','330','350'],check=True)
+    time.sleep(1)
+else:
+    raise AssertionError('Signed release native replay did not return the reference decision')
+for _ in range(7):
     if click(lambda a: a.get('content-desc')=='Close settings'):
         break
     subprocess.run(['adb','shell','input','swipe','1100','300','1100','800','350'],check=True)
