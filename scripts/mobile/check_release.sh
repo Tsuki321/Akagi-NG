@@ -59,6 +59,7 @@ while time.monotonic()<deadline:
         (out/'model-check.txt').write_text(text)
         break
     assert 'Local AI check failed' not in text, text
+    subprocess.run(['adb','shell','input','swipe','1100','850','1100','330','350'],check=True)
     time.sleep(1)
 else:
     raise AssertionError('Signed release model check did not finish')
