@@ -121,7 +121,15 @@ def select_bundle(players):
     # DocumentsUI discovers providers and loads directory entries asynchronously.
     # A populated drawer header does not imply its roots have appeared yet.
     wait_click(lambda a: a.get('text') == 'Downloads', 'Downloads in file picker')
-    wait_click(lambda a: a.get('text') == name, name)
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        if click(lambda a: a.get('text') == name):
+            return
+        # Landscape grid tiles can put their filenames below the visible area.
+        # List mode exposes the filename instead of a preview-only control.
+        click(lambda a: a.get('content-desc') == 'List view')
+        time.sleep(.5)
+    raise AssertionError(f'Cannot choose {name}')
 
 
 def verify_selected_models():

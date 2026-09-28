@@ -5,9 +5,15 @@ on:
     branches: ['android/**']
     paths: ['android/**', 'native/**', 'scripts/mobile/**', 'scripts/android_protocol_fixtures.py', '.github/workflows/android.yml', 'models/**', 'assets/liqi.json']
   workflow_dispatch:
+    inputs:
+      reuse_tested_run:
+        description: Optional completed Android run for a release-test-only retry (app source must be unchanged)
+        type: string
+        required: false
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: android-${{ github.ref }}
@@ -15,6 +21,7 @@ concurrency:
 
 jobs:
   engine:
+    if: ${{ inputs.reuse_tested_run == '' }}
     name: Native engine and real model parity
     runs-on: ubuntu-24.04
     timeout-minutes: 40
@@ -140,19 +147,63 @@ jobs:
 
   package:
     name: Sign installable APK
-    needs: [assemble, emulator]
+    needs: [engine, assemble, emulator]
+    if: ${{ always() && !cancelled() && (inputs.reuse_tested_run != '' || (needs.engine.result == 'success' && needs.assemble.result == 'success' && needs.emulator.result == 'success')) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+      - name: Verify reused inputs match the tested app
+        if: ${{ inputs.reuse_tested_run != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TESTED_RUN: ${{ inputs.reuse_tested_run }}
+        run: |
+          python - <<'PY'
+          import json, os, re, subprocess, urllib.request
+          run = os.environ['TESTED_RUN']
+          assert run.isdecimal(), 'The tested run must be a numeric Actions run ID'
+          repo = os.environ['GITHUB_REPOSITORY']
+          def get(path):
+              request = urllib.request.Request(f'https://api.github.com/repos/{repo}/{path}', headers={
+                  'Authorization': 'Bearer ' + os.environ['GH_TOKEN'],
+                  'Accept': 'application/vnd.github+json',
+              })
+              with urllib.request.urlopen(request, timeout=30) as response:
+                  return json.load(response)
+          previous = get(f'actions/runs/{run}')
+          assert previous['status'] == 'completed' and previous['name'] == 'Android'
+          assert previous['head_branch'] == os.environ['GITHUB_REF_NAME'], 'Use a tested run from this branch'
+          required = {
+              'Native engine and real model parity',
+              'Android app, protocol tests and lint',
+              'Android 16 emulator (a54-size)',
+              'Android 16 emulator (compact-phone)',
+          }
+          jobs = get(f'actions/runs/{run}/jobs?per_page=100')['jobs']
+          passed = {job['name'] for job in jobs if job['conclusion'] == 'success'}
+          assert required <= passed, 'The source run must pass native, app, and both emulator suites'
+          revision = previous['head_sha']
+          assert re.fullmatch('[0-9a-f]{40}', revision)
+          subprocess.run(['git', 'fetch', '--no-tags', '--depth=1', 'origin', revision], check=True)
+          changed = subprocess.check_output(['git', 'diff', '--name-only', revision, 'HEAD'], text=True).splitlines()
+          allowed = {'scripts/mobile/check_release.sh', '.github/workflows/android.yml', 'android/README.md'}
+          unexpected = [path for path in changed if path not in allowed and not (path.startswith('docs/') and path.endswith('.md'))]
+          assert not unexpected, f'App/build inputs changed; run the full Android workflow: {unexpected}'
+          print(f'PASS: app and model inputs match {revision}; native, app, and both emulator suites passed in run {run}.')
+          PY
       - uses: actions/download-artifact@v4
         with:
           name: mobile-engine
           path: android/app/src/main
+          run-id: ${{ inputs.reuse_tested_run || github.run_id }}
+          github-token: ${{ github.token }}
       - uses: actions/download-artifact@v4
         with:
           name: model-import-fixtures
           path: artifacts/release-model-imports
+          run-id: ${{ inputs.reuse_tested_run || github.run_id }}
+          github-token: ${{ github.token }}
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
