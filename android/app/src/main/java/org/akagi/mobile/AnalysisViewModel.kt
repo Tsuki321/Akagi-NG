@@ -53,7 +53,9 @@ class AnalysisViewModel(application: Application) : AndroidViewModel(application
     init {
         submit {
             for (players in listOf(4, 3)) {
-                runCatching { models.choice(players) }.onSuccess { choice -> updateModel(players) { choice.toUi() } }
+                runCatching { models.choice(players) }.onSuccess { choice ->
+                    updateModel(players) { old -> choice.toUi().copy(busy = old.busy, message = if (old.busy) old.message else choice.notice) }
+                }
                 runCatching { models.prune(players) }
             }
         }

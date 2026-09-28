@@ -9,6 +9,8 @@ collect() {
 trap collect EXIT
 apk=artifacts/distribution/Akagi-Android-16.apk
 adb install -r "$apk"
+adb push artifacts/release-model-imports/replacement-4p.akagimodel /sdcard/Download/Replacement-4p.akagimodel
+adb push artifacts/release-model-imports/replacement-3p.akagimodel /sdcard/Download/Replacement-3p.akagimodel
 adb shell wm size 1080x2340
 adb shell wm density 420
 adb shell settings put system accelerometer_rotation 0
@@ -46,13 +48,83 @@ def nodes():
                 time.sleep(1)
     raise AssertionError('Could not read a fresh valid UI hierarchy after 3 attempts') from last_error
 
-def click(match):
+def find(match):
     for node in nodes():
-        if match(node.attrib):
+        if match(node.attrib) and node.attrib.get('enabled') != 'false':
             x1,y1,x2,y2 = map(int, re.findall(r'\d+',node.attrib['bounds']))
-            subprocess.run(['adb','shell','input','tap',str((x1+x2)//2),str((y1+y2)//2)],check=True)
-            return True
+            if x2 > x1 and y2 > y1:
+                return node
+    return None
+
+
+def tap(node):
+    x1,y1,x2,y2 = map(int, re.findall(r'\d+',node.attrib['bounds']))
+    subprocess.run(['adb','shell','input','tap',str((x1+x2)//2),str((y1+y2)//2)],check=True)
+
+
+def click(match):
+    node = find(match)
+    if node is not None:
+        tap(node)
+        return True
     return False
+
+
+def swipe(down):
+    start, end = ('850', '330') if down else ('300', '800')
+    subprocess.run(['adb','shell','input','swipe','1100',start,'1100',end,'350'],check=True)
+
+
+def reveal(match, down=True):
+    for _ in range(18):
+        node = find(match)
+        if node is not None:
+            return node
+        swipe(down)
+    raise AssertionError('Cannot reach release model control')
+
+
+def reveal_click(match, down=True):
+    tap(reveal(match, down))
+    time.sleep(.5)
+
+
+def wait_text(expected, scroll_down=False):
+    deadline = time.monotonic() + 60
+    while time.monotonic() < deadline:
+        content = ' '.join(n.attrib.get('text','') for n in nodes())
+        if expected in content:
+            return content
+        assert 'Model was not changed.' not in content, content
+        assert 'Local AI check failed' not in content, content
+        if scroll_down:
+            swipe(True)
+        time.sleep(.5)
+    raise AssertionError(f'Release did not show {expected}')
+
+
+def select_bundle(players):
+    name = f'Replacement-{players}p.akagimodel'
+    time.sleep(1)
+    if click(lambda a: a.get('text') == name):
+        return
+    assert click(lambda a: a.get('content-desc') in ('Show roots', 'Open navigation drawer')), 'Cannot open document locations'
+    time.sleep(.5)
+    assert click(lambda a: a.get('text') == 'Downloads'), 'Cannot reach Downloads in file picker'
+    time.sleep(.5)
+    assert click(lambda a: a.get('text') == name), f'Cannot choose {name}'
+
+
+def verify_selected_models():
+    reveal_click(lambda a: a.get('text') == 'Check local model')
+    content = wait_text('Local AI is ready.', scroll_down=True)
+    assert '62 desktop reference observations passed' in content, content
+    return content
+
+
+def open_settings():
+    assert click(lambda a: a.get('content-desc','').startswith('Open Akagi advice'))
+    assert click(lambda a: a.get('content-desc') == 'Open settings')
 
 # The system owns its first-use fullscreen education. Acknowledge it as a user.
 for _ in range(5):
@@ -63,6 +135,33 @@ assert click(lambda a: a.get('content-desc','').startswith('Open Akagi advice'))
 time.sleep(1)
 assert click(lambda a: a.get('content-desc')=='Open settings'), 'Missing settings control'
 time.sleep(1)
+for players, mode in ((4, 'four-player'), (3, 'three-player')):
+    reveal_click(lambda a: a.get('content-desc') == f'Import {mode} model')
+    select_bundle(players)
+    content = wait_text(f'{players}-player model updated.')
+    (out/f'import-{players}p.txt').write_text(content)
+    with (out/f'release-import-{players}p.png').open('wb') as screenshot:
+        subprocess.run(['adb','exec-out','screencap','-p'],check=True,stdout=screenshot)
+    # A check after each import verifies the remaining mode and the replacement.
+    (out/f'import-{players}p-model-check.txt').write_text(verify_selected_models())
+    if players == 4:
+        # Relaunch also checks private-copy persistence, without retaining a URI grant.
+        subprocess.run(['adb','shell','am','force-stop','org.akagi.mobile'],check=True)
+        subprocess.run(['adb','shell','am','start','-n','org.akagi.mobile/.MainActivity'],check=True)
+        time.sleep(2)
+        open_settings()
+        reveal(lambda a: a.get('text') == 'Replacement 4p')
+        (out/'persisted-4p.txt').write_text('Replacement 4p remained selected after force-stop and relaunch.\n')
+
+# Return only 4p to its default. The selected 3p checkpoint must still pass.
+reveal_click(lambda a: a.get('content-desc') == 'Use bundled four-player model', down=False)
+wait_text('Bundled 4-player model restored.')
+reveal(lambda a: a.get('text') == 'Replacement 3p')
+content = ' '.join(n.attrib.get('text','') for n in nodes())
+assert 'Replacement 3p' in content, content
+(out/'independent-model-reset.txt').write_text(verify_selected_models())
+reveal_click(lambda a: a.get('content-desc') == 'Use bundled three-player model', down=False)
+
 for _ in range(16):
     if click(lambda a: a.get('text')=='Check local model'):
         break
@@ -107,7 +206,7 @@ else:
     raise AssertionError('Cannot reach Close settings')
 time.sleep(1)
 assert click(lambda a: a.get('content-desc')=='Collapse advice'), 'Cannot restore compact game'
-print('PASS: signed release installed, real local models passed, compact controls work.')
+print('PASS: signed release imported each model through Android DocumentsUI, retained independent choices after relaunch and reset, passed real inference, and restored compact controls.')
 PY
 # Reinstall the identical signed APK to exercise Android's update path.
 adb install -r "$apk"

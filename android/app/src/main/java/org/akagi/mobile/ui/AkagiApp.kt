@@ -342,17 +342,20 @@ private fun GameScreen(
 
 @Composable
 private fun ModelControl(model: UiModel, onChoose: () -> Unit, onRestore: () -> Unit) {
+    val mode = if (model.players == 4) "four-player" else "three-player"
     Surface(shape = RoundedCornerShape(16.dp), color = Color(0xFF1B3033), contentColor = MaterialTheme.colorScheme.onSurface) {
         Column(Modifier.fillMaxWidth().padding(16.dp).testTag("model_${model.players}p"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(if (model.players == 4) "Four-player model" else "Three-player model", fontWeight = FontWeight.SemiBold)
             Text(model.name, color = Mint, modifier = Modifier.testTag("model_${model.players}p_name"))
             if (model.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             model.message?.let { Text(it, color = Muted, fontSize = 12.sp, modifier = Modifier.testTag("model_${model.players}p_message")) }
-            FilledTonalButton(onClick = onChoose, enabled = !model.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("import_${model.players}p")) {
+            FilledTonalButton(onClick = onChoose, enabled = !model.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                .semantics { contentDescription = "Import $mode model" }.testTag("import_${model.players}p")) {
                 Text("Import model")
             }
             if (model.custom) {
-                TextButton(onClick = onRestore, enabled = !model.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("restore_${model.players}p")) {
+                TextButton(onClick = onRestore, enabled = !model.busy, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                    .semantics { contentDescription = "Use bundled $mode model" }.testTag("restore_${model.players}p")) {
                     Text("Use bundled model")
                 }
             }

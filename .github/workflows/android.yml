@@ -149,6 +149,10 @@ jobs:
         with:
           name: mobile-engine
           path: android/app/src/main
+      - uses: actions/download-artifact@v4
+        with:
+          name: model-import-fixtures
+          path: artifacts/release-model-imports
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
