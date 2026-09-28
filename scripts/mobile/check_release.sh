@@ -70,6 +70,15 @@ def click(match):
     return False
 
 
+def wait_click(match, description, timeout=30):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if click(match):
+            return
+        time.sleep(.5)
+    raise AssertionError(f'Cannot reach {description}')
+
+
 def swipe(down):
     start, end = ('850', '330') if down else ('300', '800')
     subprocess.run(['adb','shell','input','swipe','1100',start,'1100',end,'350'],check=True)
@@ -108,11 +117,11 @@ def select_bundle(players):
     time.sleep(1)
     if click(lambda a: a.get('text') == name):
         return
-    assert click(lambda a: a.get('content-desc') in ('Show roots', 'Open navigation drawer')), 'Cannot open document locations'
-    time.sleep(.5)
-    assert click(lambda a: a.get('text') == 'Downloads'), 'Cannot reach Downloads in file picker'
-    time.sleep(.5)
-    assert click(lambda a: a.get('text') == name), f'Cannot choose {name}'
+    wait_click(lambda a: a.get('content-desc') in ('Show roots', 'Open navigation drawer'), 'document locations')
+    # DocumentsUI discovers providers and loads directory entries asynchronously.
+    # A populated drawer header does not imply its roots have appeared yet.
+    wait_click(lambda a: a.get('text') == 'Downloads', 'Downloads in file picker')
+    wait_click(lambda a: a.get('text') == name, name)
 
 
 def verify_selected_models():
