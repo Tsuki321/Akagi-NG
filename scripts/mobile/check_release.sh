@@ -172,7 +172,8 @@ for players, mode in ((4, 'four-player'), (3, 'three-player')):
 
 # Return only 4p to its default. The selected 3p checkpoint must still pass.
 reveal_click(lambda a: a.get('content-desc') == 'Use bundled four-player model', down=False)
-wait_text('Bundled 4-player model restored.')
+reveal(lambda a: a.get('text') == 'Bundled 4-player model restored.', down=False)
+(out/'restored-4p.txt').write_text(' '.join(n.attrib.get('text','') for n in nodes()))
 reveal(lambda a: a.get('text') == 'Replacement 3p')
 content = ' '.join(n.attrib.get('text','') for n in nodes())
 assert 'Replacement 3p' in content, content
