@@ -23,10 +23,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
+import androidx.webkit.JavaScriptReplyProxy
 import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
-import androidx.webkit.WebMessageReplyProxy
 import org.akagi.mobile.BuildConfig
 import org.akagi.mobile.protocol.AssistancePlan
 import org.json.JSONObject
@@ -62,7 +62,7 @@ class GameBrowser(
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
     private var destroyed = false
     private var setupError: String? = null
-    private val documents = linkedMapOf<String, WebMessageReplyProxy>()
+    private val documents = linkedMapOf<String, JavaScriptReplyProxy>()
     private var autoplay = false
     private var highlight = false
     private var assistanceActive = true
