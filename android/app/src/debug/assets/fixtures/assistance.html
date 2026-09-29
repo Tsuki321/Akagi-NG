@@ -1,0 +1,51 @@
+<!doctype html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+  <style>
+    html,body { margin:0; width:100%; height:100%; overflow:hidden; background:#10241f; }
+    canvas { position:absolute; left:50%; top:50%; transform-origin:center; }
+  </style>
+</head>
+<body>
+<canvas id="unity-canvas" width="960" height="540"></canvas>
+<script>
+  const canvas = document.getElementById('unity-canvas'), context = canvas.getContext('2d');
+  window.fixtureHand = ['1m','2m','3m','4p','5pr','6p','2s','3s','4s','6s','7s','8s','E','N'];
+  window.fixtureClicks = 0;
+  canvas.addEventListener('pointerdown', () => window.fixtureClicks++);
+  function resize() {
+    const portrait = innerHeight > innerWidth;
+    const width = Math.min(portrait ? innerHeight : innerWidth, (portrait ? innerWidth : innerHeight) * 16 / 9);
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${width * 9 / 16}px`;
+    canvas.style.transform = `translate(-50%,-50%) rotate(${portrait ? 90 : 0}deg)`;
+  }
+  window.addEventListener('resize', resize); resize();
+  function draw() {
+    context.fillStyle = '#204c40'; context.fillRect(0,0,960,540);
+    context.fillStyle = '#2c5b4b'; context.fillRect(25,25,910,390);
+    context.fillStyle = '#122e28'; context.fillRect(372,165,216,150);
+    context.fillStyle = '#d8efe5'; context.font = 'bold 24px sans-serif'; context.textAlign='center';
+    context.fillText('EAST 1',480,223); context.font = '17px sans-serif'; context.fillText('70 tiles remaining',480,263);
+    context.font = '12px sans-serif'; context.fillStyle = '#a6c9b9'; context.fillText('LOCAL ASSISTANCE TEST TABLE',480,52);
+    context.fillStyle = '#b6d5c8'; context.fillText('SOUTH · 25,000',180,414);
+    fixtureHand.forEach((tile,index) => {
+      const x = 80 + index * 47 + (index === 13 ? 9 : 0), y = 442;
+      context.fillStyle='#09291f'; context.fillRect(x-2,y-2,48,94);
+      context.fillStyle='#f5f3ed'; context.fillRect(x,y,44,88);
+      context.fillStyle=tile.endsWith('r') ? '#b72e31' : tile.includes('s') ? '#1d664d' : '#223a32';
+      context.font='bold 27px sans-serif'; context.fillText(tile[0],x+22,y+36);
+      context.font='15px sans-serif'; context.fillText(tile.length > 1 ? tile[1].toUpperCase() : 'WIND',x+22,y+65);
+    });
+    requestAnimationFrame(draw);
+  }
+  requestAnimationFrame(draw);
+  window.fixtureReceived = [];
+  const socket = window.assistanceSocket = new WebSocket(`ws://${location.host}/socket`);
+  socket.binaryType = 'arraybuffer';
+  socket.onmessage = event => { window.fixtureReceived.push(Array.from(new Uint8Array(event.data))); window.fixtureReady = true; };
+  window.fixtureNextTurn = step => socket.send(`turn:${step}`);
+</script>
+</body>
+</html>

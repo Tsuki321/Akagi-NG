@@ -14,8 +14,8 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
 
 /** Small real HTTP/WebSocket echo server confined to the emulator's loopback. */
-internal class LoopbackSocketFixture(context: Context) : Closeable {
-    private val page = context.assets.open("fixtures/capture.html").use { it.readBytes() }
+internal class LoopbackSocketFixture(context: Context, private val pageName: String = "capture") : Closeable {
+    private val page = context.assets.open("fixtures/$pageName.html").use { it.readBytes() }
     private val socket = ServerSocket(0, 20, InetAddress.getByName("127.0.0.1"))
     private val clients = CopyOnWriteArrayList<Socket>()
     private val executor = Executors.newCachedThreadPool()
@@ -35,7 +35,7 @@ internal class LoopbackSocketFixture(context: Context) : Closeable {
     }
 
     private fun serve(client: Socket) {
-        client.soTimeout = 20_000
+        client.soTimeout = if (pageName == "assistance") 120_000 else 20_000
         val input = DataInputStream(client.getInputStream())
         val output = client.getOutputStream()
         val request = readLine(input)
@@ -54,6 +54,7 @@ internal class LoopbackSocketFixture(context: Context) : Closeable {
             )
             output.write("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: $accept\r\n\r\n".toByteArray())
             output.flush()
+            if (pageName == "assistance") sendFrame(output, 2, gameAction(1))
             while (!client.isClosed) {
                 val first = input.readUnsignedByte()
                 val second = input.readUnsignedByte()
@@ -66,7 +67,13 @@ internal class LoopbackSocketFixture(context: Context) : Closeable {
                 val payload = ByteArray(length.toInt()).also(input::readFully)
                 if (mask != null) payload.indices.forEach { payload[it] = (payload[it].toInt() xor mask[it % 4].toInt()).toByte() }
                 when (opcode) {
-                    1, 2 -> sendFrame(output, opcode, payload)
+                    1, 2 -> {
+                        if (pageName == "assistance" && opcode == 2 && payload.size >= 3 && payload[0] == 2.toByte()) {
+                            sendFrame(output, 2, byteArrayOf(3, payload[1], payload[2], 10, 0, 18, 0))
+                        } else if (pageName == "assistance" && opcode == 1 && payload.toString(Charsets.UTF_8).startsWith("turn:")) {
+                            sendFrame(output, 2, gameAction(payload.toString(Charsets.UTF_8).substringAfter(':').toInt()))
+                        } else sendFrame(output, opcode, payload)
+                    }
                     8 -> { sendFrame(output, 8, payload); return }
                     9 -> sendFrame(output, 10, payload)
                 }
@@ -102,6 +109,11 @@ internal class LoopbackSocketFixture(context: Context) : Closeable {
         }
         output.write(payload)
         output.flush()
+    }
+
+    private fun gameAction(step: Int): ByteArray {
+        val name = ".lq.ActionPrototype".toByteArray()
+        return byteArrayOf(1, 10, name.size.toByte()) + name + byteArrayOf(18, 2, 8, step.toByte())
     }
 
     private fun readLine(input: DataInputStream): String {

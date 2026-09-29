@@ -20,6 +20,9 @@ internal class MjaiAdapter(val identity: GameIdentity) {
     var hasRound: Boolean = false
         private set
 
+    fun visibleHand(): List<String> = hand.sortedBy(::tileOrder) + listOfNotNull(drawn)
+    fun drawnTile(): String? = drawn
+
     fun startGame(): JSONObject = event("start_game", "id" to identity.seat, "is_3p" to (identity.playerCount == 3))
 
     fun acceptsOperation(action: LiqiAction): Boolean {

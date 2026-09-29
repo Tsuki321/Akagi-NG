@@ -28,9 +28,9 @@ adb install -r -t "$app"
 adb install -r -t "$tests"
 adb shell getprop > "$out/device-properties.txt"
 if [ "${4:-full}" = ui ]; then
-  adb shell am instrument -w -r -e class org.akagi.mobile.GameShellTest,org.akagi.mobile.BrowserCaptureTest org.akagi.mobile.debug.test/androidx.test.runner.AndroidJUnitRunner | tee "$out/instrumentation.txt"
+  adb shell am instrument -w -r -e class org.akagi.mobile.GameShellTest,org.akagi.mobile.BrowserCaptureTest,org.akagi.mobile.AssistanceTest org.akagi.mobile.debug.test/androidx.test.runner.AndroidJUnitRunner | tee "$out/instrumentation.txt"
 else
-  adb shell am instrument -w -r -e class org.akagi.mobile.GameShellTest,org.akagi.mobile.BrowserCaptureTest,org.akagi.mobile.EngineDeviceTest,org.akagi.mobile.EngineBatchDeviceTest,org.akagi.mobile.LivePipelineTest,org.akagi.mobile.ModelImportDeviceTest org.akagi.mobile.debug.test/androidx.test.runner.AndroidJUnitRunner | tee "$out/instrumentation.txt"
+  adb shell am instrument -w -r -e class org.akagi.mobile.GameShellTest,org.akagi.mobile.BrowserCaptureTest,org.akagi.mobile.AssistanceTest,org.akagi.mobile.EngineDeviceTest,org.akagi.mobile.EngineBatchDeviceTest,org.akagi.mobile.LivePipelineTest,org.akagi.mobile.ModelImportDeviceTest org.akagi.mobile.debug.test/androidx.test.runner.AndroidJUnitRunner | tee "$out/instrumentation.txt"
 fi
 if ! grep -Eq 'OK \([0-9]+ tests?\)' "$out/instrumentation.txt"; then
   echo 'Instrumentation did not report a passing test suite.' >&2

@@ -2,11 +2,13 @@ package org.akagi.mobile.protocol
 
 import com.google.protobuf.ByteString
 import com.google.protobuf.DynamicMessage
+import org.akagi.mobile.engine.EngineAction
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.security.MessageDigest
@@ -14,6 +16,59 @@ import java.util.Base64
 
 /** Real serialized Liqi -> desktop Python events, with transport fault/recovery checks. */
 class MahjongSoulProtocolTest {
+    @Test fun assistanceUsesTheObservedHandSocketAndMillisecondDeadline() {
+        val protocol = MahjongSoulProtocol(schemaJson)
+        val frames = captures(case("four_player_red_reach"))
+        frames.dropLast(1).forEach { protocol.accept(it.toString()) }
+        val last = transformAction(frames.last()) { action ->
+            val draw = xorPayload(action, "ActionDealTile")
+            val operationField = draw.descriptorForType.findFieldByName("operation")
+            val operation = draw.getField(operationField) as DynamicMessage
+            val timed = operation.toBuilder()
+                .setField(operation.descriptorForType.findFieldByName("time_fixed"), 1800)
+                .setField(operation.descriptorForType.findFieldByName("time_add"), 900).build()
+            val changed = draw.toBuilder().setField(operationField, timed).build()
+            action.toBuilder().setField(action.descriptorForType.findFieldByName("data"),
+                ByteString.copyFrom(LiqiDecoder.xor(changed.toByteArray()))).build()
+        }
+        assertTrue(protocol.accept(last.toString()).synchronized)
+        val action = EngineAction(0, "dahai", "5pr", emptyList(), null, 1f,
+            """{"type":"dahai","actor":2,"pai":"5pr","tsumogiri":true}""")
+        val plan = requireNotNull(protocol.plan(action))
+        assertEquals(2700L, plan.timeLimitMs)
+        assertEquals(last.getString("generation"), plan.generation)
+        assertEquals(last.getString("connectionId"), plan.connectionId)
+        assertEquals(last.getLong("sequence"), plan.revision)
+        assertEquals("5pr", plan.hand.last())
+        assertEquals(listOf(plan.hand.lastIndex), plan.tileIndices)
+
+        val status = JSONObject().put("type", "assistance_status").put("generation", plan.generation)
+            .put("sequence", last.getLong("sequence") + 1).put("message", "Autoplay in 1.5 s")
+        assertFalse(protocol.accept(status.toString()).clearAdvice)
+        assertEquals(plan, protocol.plan(action))
+
+        val wrapper = schema.decode("Wrapper", byteArrayOf()).toBuilder()
+        wrapper.setField(wrapper.descriptorForType.findFieldByName("name"), ".lq.FastTest.inputOperation")
+        wrapper.setField(wrapper.descriptorForType.findFieldByName("data"), ByteString.copyFrom(byteArrayOf(8, 1, 26, 2, 48, 112, 40, 1)))
+        val manual = copy(last).put("sequence", last.getLong("sequence") + 2).put("direction", "outbound")
+            .put("data", Base64.getEncoder().encodeToString(byteArrayOf(2, 42, 0) + wrapper.build().toByteArray()))
+        assertTrue(protocol.accept(manual.toString()).clearAdvice)
+        assertNull(protocol.plan(action))
+    }
+
+    @Test fun aResetOrProtocolFailureRetiresTheAssistanceDecision() {
+        val action = EngineAction(0, "dahai", "5pr", emptyList(), null, 1f,
+            """{"type":"dahai","actor":2,"pai":"5pr","tsumogiri":true}""")
+        val protocol = MahjongSoulProtocol(schemaJson)
+        val frames = captures(case("four_player_red_reach"))
+        frames.forEach { protocol.accept(it.toString()) }
+        assertNotNull(protocol.plan(action))
+        protocol.invalidateEngine("test disconnect")
+        assertNull(protocol.plan(action))
+        protocol.reset()
+        assertNull(protocol.plan(action))
+    }
+
     @Test
     fun serializedTracesMatchTheDesktopReference() {
         val hash = MessageDigest.getInstance("SHA-256").digest(schemaJson.toByteArray())

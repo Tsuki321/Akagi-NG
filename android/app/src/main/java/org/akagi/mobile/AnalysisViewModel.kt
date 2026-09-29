@@ -308,6 +308,7 @@ class AnalysisViewModel(application: Application) : AndroidViewModel(application
             alternatives = alternatives.filter { it.index != recommended.index }.take(2).map {
                 UiAlternative(it.displayLabel(), it.tile, it.score)
             }, latencyMs = latencyMs,
+            assistance = protocol.plan(recommended, reachDiscard),
         )
     }
 

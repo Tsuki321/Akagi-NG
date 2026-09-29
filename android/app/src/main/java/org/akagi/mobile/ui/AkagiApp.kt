@@ -177,10 +177,25 @@ private fun GameScreen(
         if (uri != null) onImportModel(3, uri)
     }
     var allowPortrait by rememberSaveable { mutableStateOf(preferences.getBoolean("allow_portrait", false)) }
+    var autoplay by remember(browser) { mutableStateOf(false) }
+    var highlight by rememberSaveable { mutableStateOf(preferences.getBoolean("highlight_moves", false)) }
     var xFraction by rememberSaveable { mutableFloatStateOf(preferences.getFloat("chip_x", 0f)) }
     var yFraction by rememberSaveable { mutableFloatStateOf(preferences.getFloat("chip_y", 0f)) }
     var overlaySize by remember { mutableStateOf(IntSize.Zero) }
     val browserState = browser.state
+
+    LaunchedEffect(browserState.assistanceStopCount) {
+        if (browserState.assistanceStopCount > 0) autoplay = false
+    }
+    LaunchedEffect(highlight) {
+        preferences.edit().putBoolean("highlight_moves", highlight).apply()
+    }
+    LaunchedEffect(browser, autoplay, highlight, expanded, showSettings, showAccountHelp, showModelHelp,
+        browserState.loading, browserState.error, state.advice?.assistance) {
+        browser.updateAssistance(autoplay, highlight,
+            !expanded && !showSettings && !showAccountHelp && !showModelHelp && !browserState.loading,
+            state.advice?.assistance)
+    }
 
     LaunchedEffect(browserState.accountHelpRequested) {
         if (browserState.accountHelpRequested) {
@@ -243,7 +258,7 @@ private fun GameScreen(
                 }
             }
             if (!expanded) {
-                CompactAdvice(advice, status, dragModifier, onClick = { expanded = true })
+                CompactAdvice(advice, status, dragModifier, autoplay, onClick = { expanded = true })
             } else {
                 AdviceStrip(advice, status, dragModifier, onSettings = { showSettings = true }, onCollapse = { expanded = false })
             }
@@ -270,6 +285,15 @@ private fun GameScreen(
                     }
                     SmallIconButton("Close settings", "close", Modifier.testTag("close_settings")) { showSettings = false }
                 }
+                SettingsToggle("Autoplay", "Play the model's moves with a fresh 1–3 second delay. Touch the game to stop.",
+                    autoplay, tag = "autoplay") { autoplay = it }
+                SettingsToggle("Highlight moves", "Mark recommended tiles and show calls beside your hand while you play.",
+                    highlight, tag = "highlight_moves") { highlight = it }
+                browserState.assistanceStatus?.let { message ->
+                    Text(message, color = Mint, fontSize = 12.sp, modifier = Modifier.testTag("assistance_status"))
+                }
+                if (autoplay) Text("Autoplay resumes when you close this panel.", color = Muted, fontSize = 12.sp)
+                HorizontalDivider(color = Color(0xFF304540))
                 Surface(shape = RoundedCornerShape(16.dp), color = Color(0xFF1B3033), contentColor = MaterialTheme.colorScheme.onSurface) {
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(if (browserState.error != null) "Connection needs attention" else state.status.label, fontWeight = FontWeight.SemiBold)
@@ -364,7 +388,7 @@ private fun ModelControl(model: UiModel, onChoose: () -> Unit, onRestore: () -> 
 }
 
 @Composable
-private fun CompactAdvice(advice: UiAdvice?, status: UiStatus, dragModifier: Modifier, onClick: () -> Unit) {
+private fun CompactAdvice(advice: UiAdvice?, status: UiStatus, dragModifier: Modifier, autoplay: Boolean, onClick: () -> Unit) {
     val description = if (advice == null) "Open Akagi advice, ${status.label}"
     else "Open Akagi advice, ${advice.action} ${advice.tile?.let(::tileDescription).orEmpty()}"
     Box(
@@ -381,6 +405,7 @@ private fun CompactAdvice(advice: UiAdvice?, status: UiStatus, dragModifier: Mod
             horizontalArrangement = Arrangement.spacedBy(7.dp),
         ) {
             StatusDot(status.tone)
+            if (autoplay) Text("AUTO", color = Mint, fontSize = 10.sp, fontWeight = FontWeight.Bold)
             Text(advice?.action ?: "Akagi", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 130.dp))
             advice?.tile?.let { TileFace(it, small = true) }
             Glyph("expand", Modifier.size(12.dp), Muted)
@@ -420,13 +445,13 @@ private fun AdviceStrip(advice: UiAdvice?, status: UiStatus, dragModifier: Modif
 }
 
 @Composable
-private fun SettingsToggle(title: String, detail: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+private fun SettingsToggle(title: String, detail: String, checked: Boolean, tag: String = "allow_portrait", onChange: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f).padding(end = 16.dp)) {
             Text(title, fontWeight = FontWeight.Medium)
             Text(detail, color = Muted, fontSize = 13.sp)
         }
-        Switch(checked, onChange, Modifier.semantics { contentDescription = title }.testTag("allow_portrait"))
+        Switch(checked, onChange, Modifier.semantics { contentDescription = title }.testTag(tag))
     }
 }
 

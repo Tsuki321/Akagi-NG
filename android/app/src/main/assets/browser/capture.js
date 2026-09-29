@@ -16,6 +16,7 @@
   let pendingCount = 0;
   let stopped = false;
   let queue = Promise.resolve();
+  let assistant = null;
 
   function post(event) {
     bridge.postMessage(JSON.stringify(event));
@@ -23,6 +24,7 @@
 
   function fail(reason, event) {
     stopped = true;
+    assistant?.configure({ active: false, autoplay: false, highlight: false, plan: null });
     post({ ...event, type: 'capture_error', message: reason });
   }
 
@@ -53,6 +55,10 @@
       else if (ArrayBuffer.isView(payload)) {
         snapshot = new Uint8Array(payload.buffer, payload.byteOffset, payload.byteLength).slice();
       }
+      if (type === 'websocket' && snapshot instanceof Uint8Array) {
+        event.gameRevision = assistant?.observe(connection, direction, snapshot, event.sequence) || event.sequence;
+      }
+      if (snapshot instanceof Blob) assistant?.converting(connection, 1);
     } catch (error) {
       stopped = true;
       queue = queue.then(() => fail(String(error.message || error), event));
@@ -72,6 +78,9 @@
           } else {
             const bytes = snapshot instanceof Blob
               ? new Uint8Array(await snapshot.arrayBuffer()) : snapshot;
+            if (snapshot instanceof Blob) {
+              event.gameRevision = assistant?.observe(connection, direction, bytes, event.sequence) || event.sequence;
+            }
             const parts = [];
             for (let offset = 0; offset < bytes.length; offset += 0x4000) {
               parts.push(String.fromCharCode.apply(null, bytes.subarray(offset, offset + 0x4000)));
@@ -85,18 +94,33 @@
       } catch (error) {
         fail(`Capture conversion failed: ${String(error.message || error)}`, event);
       } finally {
+        if (snapshot instanceof Blob) assistant?.converting(connection, -1);
         pendingBytes -= byteLength;
         pendingCount--;
       }
     }).catch(() => { stopped = true; });
   }
 
+  assistant = window.__akagiAssistance?.createAssistant({
+    window, generation, emit,
+    send: (socket, data) => {
+      if (stopped) throw new Error('Capture is paused');
+      return Reflect.apply(nativeSend, socket, [data]);
+    },
+  });
+  bridge.onmessage = event => {
+    if (stopped) return;
+    try { assistant?.configure(JSON.parse(event.data)); } catch { /* Ignore malformed native commands. */ }
+  };
+
   Object.defineProperty(NativeWebSocket.prototype, 'send', {
     ...Object.getOwnPropertyDescriptor(NativeWebSocket.prototype, 'send'),
     value: function send(data) {
-      const result = Reflect.apply(nativeSend, this, arguments);
       const connection = connections.get(this);
-      if (connection) emit('websocket', connection, 'outbound', data);
+      const prepared = connection && assistant ? assistant.prepareClientSend(connection, data) : { data };
+      const result = Reflect.apply(nativeSend, this, [prepared.data]);
+      prepared.commit?.();
+      if (connection) emit('websocket', connection, 'outbound', prepared.data);
       return result;
     },
   });
@@ -106,11 +130,17 @@
       const socket = Reflect.construct(target, args, newTarget);
       const connection = { id: `ws-${++connectionCount}`, url: socket.url };
       connections.set(socket, connection);
+      assistant?.open(socket, connection);
       emit('websocket_created', connection);
-      socket.addEventListener('message', event => emit('websocket', connection, 'inbound', event.data));
-      socket.addEventListener('close', event => emit('websocket_closed', connection, '', undefined, {
-        code: event.code, reason: event.reason, wasClean: event.wasClean,
-      }));
+      socket.addEventListener('message', event => {
+        if (!assistant?.incoming(connection, event)) emit('websocket', connection, 'inbound', event.data);
+      });
+      socket.addEventListener('close', event => {
+        assistant?.close(connection);
+        emit('websocket_closed', connection, '', undefined, {
+          code: event.code, reason: event.reason, wasClean: event.wasClean,
+        });
+      });
       return socket;
     },
   });

@@ -26,7 +26,9 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
+import androidx.webkit.WebMessageReplyProxy
 import org.akagi.mobile.BuildConfig
+import org.akagi.mobile.protocol.AssistancePlan
 import org.json.JSONObject
 
 const val GAME_URL = "https://mahjongsoul.game.yo-star.com/"
@@ -40,6 +42,8 @@ data class BrowserState(
     val captureReady: Boolean = false,
     val error: String? = null,
     val accountHelpRequested: Boolean = false,
+    val assistanceStatus: String? = null,
+    val assistanceStopCount: Int = 0,
 )
 
 /** The Activity handles configuration changes so its one WebView survives rotation. */
@@ -58,6 +62,12 @@ class GameBrowser(
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
     private var destroyed = false
     private var setupError: String? = null
+    private val documents = linkedMapOf<String, WebMessageReplyProxy>()
+    private var autoplay = false
+    private var highlight = false
+    private var assistanceActive = true
+    private var foreground = true
+    private var assistancePlan: AssistancePlan? = null
     private val startUrl = initialUrl
     private val origins = buildSet {
         add("https://mahjongsoul.game.yo-star.com")
@@ -138,7 +148,9 @@ class GameBrowser(
             }
 
             override fun onPageStarted(view: WebView, url: String?, favicon: Bitmap?) {
-                state = state.copy(loading = true, progress = 0, error = setupError, captureReady = false)
+                clearAssistance()
+                documents.clear()
+                state = state.copy(loading = true, progress = 0, error = setupError, captureReady = false, assistanceStatus = null)
                 onSessionReset()
             }
 
@@ -149,6 +161,7 @@ class GameBrowser(
 
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
                 if (request.isForMainFrame) {
+                    clearAssistance()
                     state = state.copy(loading = false, error = "The game could not load. Check your connection and reload.")
                     onSessionReset()
                 }
@@ -175,7 +188,7 @@ class GameBrowser(
             return
         }
         // Both are installed before loadUrl. The object is available before page script.
-        WebViewCompat.addWebMessageListener(webView, "AkagiCapture", origins) { _, message, origin, mainFrame, _ ->
+        WebViewCompat.addWebMessageListener(webView, "AkagiCapture", origins) { _, message, origin, mainFrame, reply ->
             if (destroyed || !isGameOrigin(origin)) return@addWebMessageListener
             val data = runCatching { message.data }.getOrNull() ?: return@addWebMessageListener
             if (data.length > 6 * 1024 * 1024) {
@@ -189,21 +202,33 @@ class GameBrowser(
                 json.put("sourceOrigin", origin.toString())
                 json.put("mainFrame", mainFrame)
                 when (json.optString("type")) {
-                    "capture_ready" -> if (mainFrame) state = state.copy(captureReady = true)
+                    "capture_ready" -> {
+                        if (mainFrame) state = state.copy(captureReady = true)
+                        if (documents.size < 64) documents[json.getString("generation")] = reply
+                    }
+                    "assistance_status" -> {
+                        val stop = json.optBoolean("stopAutoplay")
+                        if (stop) autoplay = false
+                        state = state.copy(assistanceStatus = json.optString("message").take(180),
+                            assistanceStopCount = state.assistanceStopCount + if (stop) 1 else 0)
+                        if (stop) sendAssistance()
+                    }
                     "capture_error" -> {
                         state = state.copy(captureReady = false, error = json.optString("message", "Capture stopped. Reload the game."))
                         onSessionReset()
                     }
                 }
                 onCapture(json.toString())
+                if (json.optString("type") == "capture_ready") sendAssistance()
             } catch (_: Exception) {
                 state = state.copy(captureReady = false, error = "Game capture was interrupted. Reload to synchronize.")
                 onSessionReset()
             }
         }
-        WebViewCompat.addDocumentStartJavaScript(
-            webView, webView.context.assets.open("browser/capture.js").bufferedReader().use { it.readText() }, origins,
-        )
+        val source = listOf("browser/assistance.js", "browser/capture.js").joinToString("\n") { path ->
+            webView.context.assets.open(path).bufferedReader().use { it.readText() }
+        }
+        WebViewCompat.addDocumentStartJavaScript(webView, source, origins)
     }
 
     private fun isGameOrigin(uri: Uri): Boolean {
@@ -214,6 +239,7 @@ class GameBrowser(
 
     fun reload() {
         if (destroyed) return
+        clearAssistance()
         onSessionReset()
         webView.reload()
     }
@@ -234,10 +260,13 @@ class GameBrowser(
     }
 
     override fun onResume(owner: LifecycleOwner) {
-        if (!destroyed) webView.onResume()
+        foreground = true
+        if (!destroyed) { webView.onResume(); sendAssistance() }
     }
 
     override fun onPause(owner: LifecycleOwner) {
+        foreground = false
+        sendAssistance()
         if (!destroyed) {
             CookieManager.getInstance().flush()
             webView.onPause()
@@ -246,11 +275,37 @@ class GameBrowser(
 
     fun destroy() {
         if (destroyed) return
+        clearAssistance()
+        documents.clear()
         destroyed = true
         hideCustomView()
         (webView.parent as? ViewGroup)?.removeView(webView)
         webView.stopLoading()
         webView.destroy()
+    }
+
+    fun updateAssistance(autoplay: Boolean, highlight: Boolean, active: Boolean, plan: AssistancePlan?) {
+        this.autoplay = autoplay
+        this.highlight = highlight
+        assistanceActive = active
+        assistancePlan = plan
+        sendAssistance()
+    }
+
+    private fun clearAssistance() {
+        assistancePlan = null
+        sendAssistance()
+    }
+
+    private fun sendAssistance() {
+        if (destroyed) return
+        documents.forEach { (generation, reply) ->
+            val plan = assistancePlan?.takeIf { it.generation == generation }
+            val message = JSONObject().put("autoplay", autoplay).put("highlight", highlight)
+                .put("active", assistanceActive && foreground && state.error == null)
+                .put("plan", plan?.toJson() ?: JSONObject.NULL)
+            runCatching { reply.postMessage(message.toString()) }
+        }
     }
 }
 

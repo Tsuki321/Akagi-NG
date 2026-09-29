@@ -1,6 +1,7 @@
 package org.akagi.mobile.protocol
 
 import android.content.Context
+import org.akagi.mobile.engine.EngineAction
 import org.json.JSONObject
 import java.util.Base64
 
@@ -36,6 +37,8 @@ class MahjongSoulProtocol(schemaJson: String) {
     private var activeSocket: SocketKey? = null
     private var identity: GameIdentity? = null
     private var adapter: MjaiAdapter? = null
+    private var decision: GameDecision? = null
+    private var captureRevision = 0L
     private var pendingAccount: Long? = null
     private var pendingUuid: String? = null
     private var authenticated = false
@@ -124,6 +127,7 @@ class MahjongSoulProtocol(schemaJson: String) {
     }
 
     private fun frame(capture: JSONObject, key: SocketKey): ProtocolUpdate {
+        captureRevision = capture.optLong("gameRevision", capture.getLong("sequence"))
         val socket = sockets[key]
         if (socket == null) {
             invalidate("Socket opening was missed; reload the game to restore capture")
@@ -183,7 +187,7 @@ class MahjongSoulProtocol(schemaJson: String) {
             }
             ".lq.NotifyGameEndResult", ".lq.NotifyGameTerminate" -> endGame()
             ".lq.FastTest.inputOperation", ".lq.FastTest.inputChiPengGang" -> {
-                if (message.kind == 2) clearThisUpdate = true
+                if (message.kind == 2) { clearThisUpdate = true; decision = null }
                 if (message.kind == 3) checkSuccess(message.data)
                 update()
             }
@@ -221,6 +225,7 @@ class MahjongSoulProtocol(schemaJson: String) {
     private fun liveAction(action: LiqiAction): ProtocolUpdate {
         val bridge = adapter ?: throw ProtocolException("Game identity is not known")
         if (action.name == "ActionMJStart") {
+            decision = null
             clearThisUpdate = true
             lastStep = action.step
             return update()
@@ -238,6 +243,7 @@ class MahjongSoulProtocol(schemaJson: String) {
             ready = true
             engineStarted = true
             status = watchingStatus()
+            updateDecision(action, replacement)
             return update(render(prefix, sync = false, allowAction = false) +
                 render(events, sync = false, allowAction = replacement.acceptsOperation(action)))
         }
@@ -247,6 +253,7 @@ class MahjongSoulProtocol(schemaJson: String) {
         clearThisUpdate = true
         requireProtocol(lastStep == null || action.step == requireNotNull(lastStep) + 1, "Game action sequence has a gap")
         val events = bridge.apply(action)
+        updateDecision(action, bridge)
         history += action
         requireProtocol(history.size <= MAX_ROUND_ACTIONS, "Round history is too large")
         lastStep = action.step
@@ -308,10 +315,12 @@ class MahjongSoulProtocol(schemaJson: String) {
         ready = replacement.hasRound
         engineStarted = true
         status = if (ready) watchingStatus() else "Round ended"
+        updateDecision(replay.last(), replacement)
         return update(output)
     }
 
     private fun endGame(): ProtocolUpdate {
+        decision = null
         ready = false
         clearThisUpdate = true
         history.clear()
@@ -340,6 +349,7 @@ class MahjongSoulProtocol(schemaJson: String) {
     private fun watchingStatus() = "Watching ${requireNotNull(identity).playerCount}-player game"
 
     private fun clearGame() {
+        decision = null
         activeSocket = null
         identity = null
         adapter = null
@@ -353,6 +363,7 @@ class MahjongSoulProtocol(schemaJson: String) {
     }
 
     private fun resetEngine() {
+        decision = null
         engineStarted = false
         resetThisUpdate = true
         clearThisUpdate = true
@@ -362,6 +373,27 @@ class MahjongSoulProtocol(schemaJson: String) {
         ready = false
         resetEngine()
         status = reason
+    }
+
+    fun plan(action: EngineAction, reachDiscard: EngineAction? = null): AssistancePlan? =
+        decision?.takeIf { ready }?.plan(action, reachDiscard)
+
+    private fun updateDecision(action: LiqiAction, bridge: MjaiAdapter) {
+        val socket = activeSocket
+        val operation = action.data.optJSONObject("operation")
+        decision = if (socket == null || operation == null || !bridge.hasRound || !bridge.acceptsOperation(action)) null else {
+            val list = requireNotNull(operation.optJSONArray("operationList"))
+            val operations = (0 until list.length()).map { index ->
+                val item = list.getJSONObject(index)
+                val combinations = item.optJSONArray("combination")
+                GameOperation(item.getInt("type"), combinations?.let { array ->
+                    (0 until array.length()).map(array::getString)
+                }.orEmpty())
+            }
+            val budgetMs = operation.optLong("timeFixed") + operation.optLong("timeAdd")
+            GameDecision(socket.generation, socket.connection, captureRevision, bridge.identity.seat,
+                bridge.visibleHand(), bridge.drawnTile(), operations, budgetMs)
+        }
     }
 
     private fun retire(generation: String) {

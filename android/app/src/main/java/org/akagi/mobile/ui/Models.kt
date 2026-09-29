@@ -1,5 +1,7 @@
 package org.akagi.mobile.ui
 
+import org.akagi.mobile.protocol.AssistancePlan
+
 /** Only live, validated advice belongs here. A null advice clears every previous action. */
 data class UiState(
     val status: UiStatus = UiStatus(),
@@ -35,6 +37,7 @@ data class UiAdvice(
     val detail: String = "",
     val alternatives: List<UiAlternative> = emptyList(),
     val latencyMs: Long? = null,
+    val assistance: AssistancePlan? = null,
 )
 
 data class UiAlternative(

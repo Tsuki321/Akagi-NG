@@ -59,7 +59,7 @@ def wrapper(name: str, payload: bytes) -> bytes:
 
 
 def operation(seat: int, kind: int = 1) -> dict:
-    return {"seat": seat, "operationList": [{"type": kind}]}
+    return {"seat": seat, "operationList": [{"type": kind}], "timeFixed": 10000, "timeAdd": 20000}
 
 
 def new_round(tiles: list[str], players: int = 4, dealer: int = 0, **extra) -> dict:

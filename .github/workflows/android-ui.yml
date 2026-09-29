@@ -3,7 +3,7 @@ name: Android UI validation
 on:
   push:
     branches: ['android/**']
-    paths: ['android/**', 'scripts/android_protocol_fixtures.py', 'scripts/mobile/run_emulator_checks.sh', '.github/workflows/android-ui.yml']
+    paths: ['android/**', 'scripts/android_protocol_fixtures.py', 'scripts/mobile/run_emulator_checks.sh', 'scripts/mobile/test_assistance.cjs', '.github/workflows/android-ui.yml']
   workflow_dispatch:
 
 permissions:
@@ -32,6 +32,11 @@ jobs:
             density: 320
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Check autoplay timing and game input isolation
+        run: node --test scripts/mobile/test_assistance.cjs
       - uses: actions/setup-java@v4
         with:
           distribution: temurin

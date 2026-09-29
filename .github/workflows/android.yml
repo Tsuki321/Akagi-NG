@@ -94,6 +94,11 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Check autoplay timing and game input isolation
+        run: node --test scripts/mobile/test_assistance.cjs
       - uses: actions/download-artifact@v4
         with:
           name: mobile-engine
