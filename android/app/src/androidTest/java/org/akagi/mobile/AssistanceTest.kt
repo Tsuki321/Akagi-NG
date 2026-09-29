@@ -2,6 +2,8 @@ package org.akagi.mobile
 
 import android.content.Intent
 import android.content.pm.ActivityInfo
+import android.os.SystemClock
+import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -32,7 +34,7 @@ class AssistanceTest {
         advise(activity)
         settings()
         compose.onNodeWithTag("highlight_moves").performScrollTo().performClick()
-        compose.onNodeWithTag("close_settings").performScrollTo().performClick()
+        returnToGame()
         awaitBrowser(activity, "document.querySelector('[data-tile-index=\"4\"]')")
         assertEquals(0, inputs(activity).size)
         assertEquals("Discard", evaluate(activity, "document.querySelector('[data-action]').dataset.action"))
@@ -61,6 +63,9 @@ class AssistanceTest {
         compose.onNodeWithTag("autoplay").performScrollTo().performClick()
         assertEquals(0, inputs(activity).size)
         compose.onNodeWithTag("close_settings").performScrollTo().performClick()
+        SystemClock.sleep(3_250)
+        assertEquals("Expanded advice keeps autoplay paused", 0, inputs(activity).size)
+        compose.onNodeWithTag("collapse_advice").performClick()
         compose.waitUntil(8_000) { inputs(activity).size == 1 }
         val sent = inputs(activity).single()
         assertEquals(2, android.util.Base64.decode(sent.getString("data"), android.util.Base64.DEFAULT)[0].toInt())
@@ -73,16 +78,40 @@ class AssistanceTest {
         captureScreenshot(activity, "12_autoplay_active")
         settings()
         compose.onNodeWithTag("autoplay").performScrollTo().performClick()
-        compose.onNodeWithTag("close_settings").performScrollTo().performClick()
+        returnToGame()
         evaluate(activity, "fixtureNextTurn(2); true")
         awaitBrowser(activity, "fixtureReceived.length === 2")
         advise(activity)
+        SystemClock.sleep(3_250)
         assertEquals(1, inputs(activity).size)
+    }
+
+    @Test fun touchingTheGameDisablesAutoplayForSubsequentTurns() = withTable { activity ->
+        advise(activity)
+        settings()
+        compose.onNodeWithTag("autoplay").performScrollTo().performClick()
+        returnToGame()
+        compose.waitUntil(8_000) { inputs(activity).size == 1 }
+        tapBrowserElement(activity, "unity-canvas")
+        awaitBrowser(activity, "window.fixtureClicks === 1")
+        settings()
+        compose.onNodeWithTag("autoplay").performScrollTo().assertIsOff()
+        returnToGame()
+        evaluate(activity, "fixtureNextTurn(2); true")
+        awaitBrowser(activity, "fixtureReceived.length === 2")
+        advise(activity)
+        SystemClock.sleep(3_250)
+        assertEquals("Manual touch keeps the next turn manual", 1, inputs(activity).size)
     }
 
     private fun settings() {
         compose.onNodeWithTag("advice_chip").performClick()
         compose.onNodeWithTag("open_settings").performClick()
+    }
+
+    private fun returnToGame() {
+        compose.onNodeWithTag("close_settings").performScrollTo().performClick()
+        compose.onNodeWithTag("collapse_advice").performClick()
     }
 
     private fun advise(activity: BrowserFixtureActivity) {

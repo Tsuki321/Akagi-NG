@@ -292,7 +292,7 @@ private fun GameScreen(
                 browserState.assistanceStatus?.let { message ->
                     Text(message, color = Mint, fontSize = 12.sp, modifier = Modifier.testTag("assistance_status"))
                 }
-                if (autoplay) Text("Autoplay resumes when you close this panel.", color = Muted, fontSize = 12.sp)
+                if (autoplay) Text("Close settings and collapse advice to resume autoplay.", color = Muted, fontSize = 12.sp)
                 HorizontalDivider(color = Color(0xFF304540))
                 Surface(shape = RoundedCornerShape(16.dp), color = Color(0xFF1B3033), contentColor = MaterialTheme.colorScheme.onSurface) {
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {

@@ -2,7 +2,7 @@
 
 The settings panel has two independent switches:
 
-- **Autoplay** follows local model decisions after a newly sampled delay between 1,000 and 3,000 milliseconds. The chip displays `AUTO` while enabled. Touch the game or turn the switch off to stop. Opening advice/settings, switching apps, navigation, a disconnected socket, or a new turn cancels pending work. Autoplay is off when the app starts.
+- **Autoplay** follows local model decisions after a newly sampled delay between 1,000 and 3,000 milliseconds. The chip displays `AUTO` while enabled. Close settings and collapse advice to return to the game and resume autoplay. Touch the game or turn the switch off to stop. Opening advice/settings, switching apps, navigation, a disconnected socket, or a new turn cancels pending work. Autoplay is off when the app starts.
 - **Highlight moves** outlines the recommended discard, riichi discard, or consumed tiles in your hand and shows a nearby action label for calls, kan, kita, wins, and passes. Touches pass through the overlay. This preference survives restarts and works with autoplay off.
 
 Autoplay uses the exact operation and combination offered by the server. Riichi uses Mortal's follow-up discard. Red fives, ordinary fives, and the separately drawn tile retain their identity. A missing or incompatible operation leaves that move to the player. A response error or missing acknowledgement stops autoplay without retrying the move.
@@ -29,7 +29,7 @@ If a tile skin, animation, or obstructed table prevents finding the complete row
 
 - `node --test scripts/mobile/test_assistance.cjs` exercises the production capture/assistance scripts with ordered sockets and a controlled clock. It covers delays, deadlines, cancellation, request collisions, response errors, duplicate decisions, and tile detection at different sizes and concealed hand counts.
 - `GameDecisionTest` covers red fives, tsumogiri, kuikae, riichi, exact call combinations, all kan types, kita, wins, and passes. `MahjongSoulProtocolTest` checks decision identity, millisecond deadlines, status-message ordering, manual inputs, and invalidation using serialized game traces.
-- `AssistanceTest` drives the real settings and WebView against a local canvas/socket fixture. It checks independent highlighting, touch pass-through, portrait rotation, one automatic move, and reply isolation. It saves screenshots alongside the existing Android emulator evidence.
+- `AssistanceTest` drives the real settings and WebView against a local canvas/socket fixture. It checks independent highlighting, touch pass-through, portrait rotation, one automatic move, and reply isolation. It also checks that expanded advice pauses autoplay and that switching autoplay off or touching the game keeps subsequent turns manual. It saves screenshots alongside the existing Android emulator evidence.
 - Both Android workflows run these checks in GitHub Actions. No local Android or native compilation is used.
 
 The local fixture does not constitute verification in a signed-in live match. Custom tile skins and the actual public game remain useful device checks when a phone is available.
