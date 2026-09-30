@@ -52,10 +52,12 @@ class AssistanceTest {
         awaitBrowser(activity, "window.fixtureClicks === 1")
         assertEquals(0, inputs(activity).size)
         InstrumentationRegistry.getInstrumentation().runOnMainSync { activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT }
+        compose.waitForIdle()
         awaitBrowser(activity, "innerHeight > innerWidth")
         awaitHighlight(activity, "document.querySelector('[data-tile-index=\"4\"]')?.getBoundingClientRect().width > document.querySelector('[data-tile-index=\"4\"]')?.getBoundingClientRect().height")
         captureScreenshot(activity, "11_portrait_table_highlight")
         InstrumentationRegistry.getInstrumentation().runOnMainSync { activity.fixtureState = UiState() }
+        compose.waitForIdle()
         awaitBrowser(activity, "!document.getElementById('akagi-table-guidance')")
     }
 
@@ -114,6 +116,9 @@ class AssistanceTest {
     private fun returnToGame() {
         compose.onNodeWithTag("close_settings").performScrollTo().performClick()
         compose.onNodeWithTag("collapse_advice").performClick()
+        // WebView polling does not advance Compose's test clock or finish its effects.
+        compose.waitForIdle()
+        compose.waitUntil(5_000) { evaluate(activity, "window.fixtureAssistanceConfig?.active === true") == true }
     }
 
     private fun awaitHighlight(activity: BrowserFixtureActivity,
