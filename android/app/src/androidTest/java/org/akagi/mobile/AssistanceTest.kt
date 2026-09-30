@@ -36,7 +36,7 @@ class AssistanceTest {
         settings()
         compose.onNodeWithTag("highlight_moves").performScrollTo().performClick()
         compose.onNodeWithTag("highlight_moves").assertIsOn()
-        returnToGame()
+        returnToGame(activity)
         awaitHighlight(activity)
         assertEquals(0, inputs(activity).size)
         assertEquals("Discard", evaluate(activity, "document.querySelector('[data-action]').dataset.action"))
@@ -82,7 +82,7 @@ class AssistanceTest {
         captureScreenshot(activity, "12_autoplay_active")
         settings()
         compose.onNodeWithTag("autoplay").performScrollTo().performClick()
-        returnToGame()
+        returnToGame(activity)
         evaluate(activity, "fixtureNextTurn(2); true")
         awaitBrowser(activity, "fixtureReceived.length === 2")
         advise(activity)
@@ -94,13 +94,13 @@ class AssistanceTest {
         advise(activity)
         settings()
         compose.onNodeWithTag("autoplay").performScrollTo().performClick()
-        returnToGame()
+        returnToGame(activity)
         compose.waitUntil(8_000) { inputs(activity).size == 1 }
         tapBrowserElement(activity, "unity-canvas")
         awaitBrowser(activity, "window.fixtureClicks === 1")
         settings()
         compose.onNodeWithTag("autoplay").performScrollTo().assertIsOff()
-        returnToGame()
+        returnToGame(activity)
         evaluate(activity, "fixtureNextTurn(2); true")
         awaitBrowser(activity, "fixtureReceived.length === 2")
         advise(activity)
@@ -113,7 +113,7 @@ class AssistanceTest {
         compose.onNodeWithTag("open_settings").performClick()
     }
 
-    private fun returnToGame() {
+    private fun returnToGame(activity: BrowserFixtureActivity) {
         compose.onNodeWithTag("close_settings").performScrollTo().performClick()
         compose.onNodeWithTag("collapse_advice").performClick()
         // WebView polling does not advance Compose's test clock or finish its effects.
