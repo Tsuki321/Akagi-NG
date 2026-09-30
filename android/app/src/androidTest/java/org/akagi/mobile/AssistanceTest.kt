@@ -4,6 +4,7 @@ import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.os.SystemClock
 import androidx.compose.ui.test.assertIsOff
+import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -34,8 +35,9 @@ class AssistanceTest {
         advise(activity)
         settings()
         compose.onNodeWithTag("highlight_moves").performScrollTo().performClick()
+        compose.onNodeWithTag("highlight_moves").assertIsOn()
         returnToGame()
-        awaitBrowser(activity, "document.querySelector('[data-tile-index=\"4\"]')")
+        awaitHighlight(activity)
         assertEquals(0, inputs(activity).size)
         assertEquals("Discard", evaluate(activity, "document.querySelector('[data-action]').dataset.action"))
         captureScreenshot(activity, "10_manual_table_highlight")
@@ -51,7 +53,7 @@ class AssistanceTest {
         assertEquals(0, inputs(activity).size)
         InstrumentationRegistry.getInstrumentation().runOnMainSync { activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT }
         awaitBrowser(activity, "innerHeight > innerWidth")
-        awaitBrowser(activity, "document.querySelector('[data-tile-index=\"4\"]')?.getBoundingClientRect().width > document.querySelector('[data-tile-index=\"4\"]')?.getBoundingClientRect().height")
+        awaitHighlight(activity, "document.querySelector('[data-tile-index=\"4\"]')?.getBoundingClientRect().width > document.querySelector('[data-tile-index=\"4\"]')?.getBoundingClientRect().height")
         captureScreenshot(activity, "11_portrait_table_highlight")
         InstrumentationRegistry.getInstrumentation().runOnMainSync { activity.fixtureState = UiState() }
         awaitBrowser(activity, "!document.getElementById('akagi-table-guidance')")
@@ -112,6 +114,28 @@ class AssistanceTest {
     private fun returnToGame() {
         compose.onNodeWithTag("close_settings").performScrollTo().performClick()
         compose.onNodeWithTag("collapse_advice").performClick()
+    }
+
+    private fun awaitHighlight(activity: BrowserFixtureActivity,
+        condition: String = "document.querySelector('[data-tile-index=\"4\"]')") {
+        try {
+            awaitBrowser(activity, condition)
+        } catch (failure: Exception) {
+            val diagnostic = evaluate(activity, """
+                JSON.stringify((() => {
+                    const canvas = document.getElementById('unity-canvas');
+                    const pixels = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
+                    return {config: window.fixtureAssistanceConfig, frames: window.fixtureFrames,
+                        visibility: document.visibilityState, time: performance.now(),
+                        canvas: {width: canvas.width, height: canvas.height, rect: canvas.getBoundingClientRect().toJSON(),
+                            transform: getComputedStyle(canvas).transform},
+                        detected: __akagiAssistance.locateHand(pixels, fixtureHand.length),
+                        overlay: document.getElementById('akagi-table-guidance')?.outerHTML};
+                })())
+            """.trimIndent())
+            captureScreenshot(activity, "13_highlight_failure")
+            throw AssertionError("Tile highlight diagnostic: $diagnostic", failure)
+        }
     }
 
     private fun advise(activity: BrowserFixtureActivity) {

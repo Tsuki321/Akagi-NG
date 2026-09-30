@@ -11,6 +11,12 @@
 <canvas id="unity-canvas" width="960" height="540"></canvas>
 <script>
   const canvas = document.getElementById('unity-canvas'), context = canvas.getContext('2d');
+  window.fixtureFrames = 0;
+  const assistanceMessage = window.AkagiCapture?.onmessage;
+  if (assistanceMessage) window.AkagiCapture.onmessage = function(event) {
+    window.fixtureAssistanceConfig = JSON.parse(event.data);
+    return assistanceMessage.call(this, event);
+  };
   window.fixtureHand = ['1m','2m','3m','4p','5pr','6p','2s','3s','4s','6s','7s','8s','E','N'];
   window.fixtureClicks = 0;
   canvas.addEventListener('pointerdown', () => window.fixtureClicks++);
@@ -23,6 +29,7 @@
   }
   window.addEventListener('resize', resize); resize();
   function draw() {
+    window.fixtureFrames++;
     context.fillStyle = '#204c40'; context.fillRect(0,0,960,540);
     context.fillStyle = '#2c5b4b'; context.fillRect(25,25,910,390);
     context.fillStyle = '#122e28'; context.fillRect(372,165,216,150);

@@ -119,7 +119,8 @@ internal fun awaitBrowserViewport(activity: Activity, timeoutMs: Long = 10_000) 
 /** Use the measured browser viewport, which may differ from display density. */
 internal fun tapBrowserElement(activity: Activity, elementId: String) {
     val element = JSONObject.quote(elementId)
-    val target = JSONObject(evaluate(activity, "JSON.stringify((() => { const e=document.getElementById($element); const r=e.getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2,width:innerWidth,height:innerHeight,visible:r.left>=0&&r.top>=0&&r.right<=innerWidth&&r.bottom<=innerHeight}; })())") as String)
+    // Fractional CSS pixels can extend a fitted canvas slightly past integer viewport dimensions.
+    val target = JSONObject(evaluate(activity, "JSON.stringify((() => { const e=document.getElementById($element); const r=e.getBoundingClientRect(); return {x:r.x+r.width/2,y:r.y+r.height/2,width:innerWidth,height:innerHeight,visible:r.left>=-1&&r.top>=-1&&r.right<=innerWidth+1&&r.bottom<=innerHeight+1}; })())") as String)
     check(target.getBoolean("visible")) { "Game control $elementId is outside the viewport: $target" }
     val location = IntArray(2)
     val dimensions = IntArray(2)
